@@ -1,6 +1,16 @@
 import supabase from "@/lib/supabase";
 import { generateResponse, detectScheduling } from "@/lib/ai";
 import { sendEmail } from "@/lib/email";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY!);
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 export async function POST(req: Request) {
   try {
@@ -16,15 +26,33 @@ export async function POST(req: Request) {
     const emailMatch = rawEmail.match(/<(.+?)>/);
     const email = (emailMatch ? emailMatch[1] : rawEmail).trim().toLowerCase();
 
-    // 🔥 FIXED message parsing (THIS is the key fix)
-    let message = data?.text || data?.snippet || "";
+    // 🔥 REAL FIX — Resend webhook only gives metadata.
+    // We must fetch the full received email using email_id.
+    let message = "";
 
-    // fallback to html if no text
-    if (!message && data?.html) {
-      message = data.html.replace(/<[^>]+>/g, " ");
+    if (data?.email_id) {
+      const { data: receivedEmail, error: receivedEmailError } =
+        await resend.emails.receiving.get(data.email_id);
+
+      if (receivedEmailError) {
+        console.error("Failed to fetch received email:", receivedEmailError);
+      }
+
+      message =
+        receivedEmail?.text ||
+        (receivedEmail?.html ? stripHtml(receivedEmail.html) : "") ||
+        data?.subject ||
+        "";
+    } else {
+      // fallback for Postman/manual tests
+      message =
+        data?.text ||
+        data?.snippet ||
+        body?.message ||
+        (data?.html ? stripHtml(data.html) : "");
     }
 
-    message = message?.trim();
+    message = message.trim();
 
     if (!email || !message) {
       console.log("⚠️ Missing parsed fields but continuing:", {
@@ -36,7 +64,7 @@ export async function POST(req: Request) {
     console.log("Parsed email:", email);
     console.log("Parsed message:", message);
 
-    // 🔥 STEP 1 — find existing lead
+    // STEP 1 — find existing lead
     const { data: lead } = await supabase
       .from("leads")
       .select("*")
@@ -47,7 +75,7 @@ export async function POST(req: Request) {
 
     let currentLead = lead;
 
-    // 🔥 STEP 2 — create lead if not exists
+    // STEP 2 — create lead if not exists
     if (!currentLead) {
       console.log("Creating new lead for:", email);
 
