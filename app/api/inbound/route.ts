@@ -8,8 +8,10 @@ export async function POST(req: Request) {
 
     console.log("INBOUND:", body);
 
-    const email = body?.data?.from;
-    const message = body?.data?.text;
+    // ✅ FIX 1 — support BOTH Resend + Postman formats
+    const email = body?.data?.from || body?.email;
+
+    const message = body?.data?.text || body?.data?.html || body?.message || "";
 
     if (!email || !message) {
       return Response.json(
@@ -18,12 +20,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. find lead
+    // ✅ FIX 2 — safer lead lookup (no crash on duplicates)
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .select("*")
       .eq("email", email)
-      .single();
+      .order("created_at", { ascending: false }) // pick latest lead
+      .limit(1)
+      .maybeSingle();
 
     if (leadError || !lead) {
       console.log("Lead not found for:", email);
