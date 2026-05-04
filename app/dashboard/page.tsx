@@ -6,12 +6,14 @@ export default function Dashboard() {
   const [leads, setLeads] = useState<any[]>([]);
   const [sendingId, setSendingId] = useState<number | null>(null);
   const [sentId, setSentId] = useState<number | null>(null);
-  const [savingId, setSavingId] = useState<number | null>(null); // ✅ NEW
-  const [savedId, setSavedId] = useState<number | null>(null); // ✅ NEW
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [savedId, setSavedId] = useState<number | null>(null);
 
   const [editedResponses, setEditedResponses] = useState<{
     [key: number]: string;
   }>({});
+
+  const [mode, setMode] = useState<"manual" | "auto">("manual"); // ✅ NEW
 
   useEffect(() => {
     fetch("/api/lead")
@@ -33,7 +35,6 @@ export default function Dashboard() {
     );
   }
 
-  // ✅ UPDATED — now with UI feedback
   async function saveResponse(id: number, response: string) {
     try {
       setSavingId(id);
@@ -87,10 +88,45 @@ export default function Dashboard() {
     }
   }
 
+  // ✅ NEW — auto mode behavior
+  useEffect(() => {
+    if (mode !== "auto") return;
+
+    leads.forEach((lead) => {
+      if (lead.status === "new") {
+        resendEmail(lead.id, lead.email, lead.suggested_response);
+        updateStatus(lead.id, "contacted");
+      }
+    });
+  }, [leads, mode]);
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-6">Leads Dashboard</h1>
+
+        {/* ✅ NEW — Mode toggle */}
+        <div className="mb-4 flex items-center space-x-4">
+          <span className="font-medium">Mode:</span>
+
+          <button
+            onClick={() => setMode("manual")}
+            className={`px-3 py-1 rounded ${
+              mode === "manual" ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+          >
+            Manual
+          </button>
+
+          <button
+            onClick={() => setMode("auto")}
+            className={`px-3 py-1 rounded ${
+              mode === "auto" ? "bg-green-500 text-white" : "bg-gray-200"
+            }`}
+          >
+            Auto
+          </button>
+        </div>
 
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
           <table className="min-w-full text-sm">
@@ -139,10 +175,8 @@ export default function Dashboard() {
                     </select>
                   </td>
 
-                  {/* ✅ UPDATED ACTION COLUMN */}
                   <td className="px-6 py-4">
                     <div className="flex flex-col space-y-2">
-                      {/* Save button */}
                       <button
                         onClick={() =>
                           saveResponse(
@@ -166,7 +200,6 @@ export default function Dashboard() {
                             : "Save"}
                       </button>
 
-                      {/* Send button */}
                       <button
                         onClick={() =>
                           resendEmail(
@@ -175,7 +208,7 @@ export default function Dashboard() {
                             editedResponses[lead.id] ?? lead.suggested_response,
                           )
                         }
-                        disabled={sendingId === lead.id}
+                        disabled={sendingId === lead.id || mode === "auto"} // ✅ UPDATED
                         className={`px-3 py-1 rounded text-white ${
                           sendingId === lead.id
                             ? "bg-gray-400"
