@@ -1,5 +1,6 @@
 import supabase from "@/lib/supabase";
 import { processLead, generateResponse } from "@/lib/ai";
+import { sendEmail } from "@/lib/email"; // ✅ NEW
 
 async function logStep(
   request_id: string,
@@ -76,7 +77,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 NEW — generate response
+    // 🔥 Generate response
     let reply: string;
 
     try {
@@ -96,11 +97,25 @@ export async function POST(req: Request) {
       );
     }
 
+    // 🔥 NEW — Send email
+    try {
+      await sendEmail(email, "Thanks for your inquiry", reply);
+      await logStep(request_id, "email_sent", { email });
+    } catch (emailError: any) {
+      await logStep(
+        request_id,
+        "email_error",
+        { email },
+        emailError?.message || "Email failed",
+      );
+      // ❗ Notice: we do NOT fail the whole request
+    }
+
     const { data, error } = await supabase
       .from("leads")
       .insert([
         {
-          request_id, // ✅ important fix
+          request_id,
           name,
           email,
           message,
@@ -108,8 +123,8 @@ export async function POST(req: Request) {
           category: aiResult.category || "unknown",
           priority: aiResult.priority || "medium",
           lead_quality: aiResult.lead_quality || "unknown",
-          suggested_response: reply, // ✅ new
-          status: "new", // ✅ new
+          suggested_response: reply,
+          status: "new",
         },
       ])
       .select();
