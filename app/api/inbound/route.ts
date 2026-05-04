@@ -82,6 +82,15 @@ export async function POST(req: Request) {
       );
     }
 
+    // 🔥 NEW — update lead so dashboard reflects activity
+    await supabase
+      .from("leads")
+      .update({
+        summary: message.substring(0, 120),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", lead.id);
+
     // 🔥 detect scheduling
     const scheduling = await detectScheduling(message);
 

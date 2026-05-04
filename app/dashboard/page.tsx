@@ -15,9 +15,11 @@ export default function Dashboard() {
 
   const [mode, setMode] = useState<"manual" | "auto">("manual");
 
-  // 🔥 NEW — reusable fetch
+  // 🔥 FIX — disable cache so updates actually show
   async function fetchLeads() {
-    const res = await fetch("/api/lead");
+    const res = await fetch("/api/lead", {
+      cache: "no-store", // ✅ IMPORTANT FIX
+    });
     const data = await res.json();
     setLeads(data.data || []);
   }
@@ -26,11 +28,11 @@ export default function Dashboard() {
     fetchLeads();
   }, []);
 
-  // 🔥 NEW — polling (this is what makes inbound visible)
+  // 🔥 polling (works, just keep it)
   useEffect(() => {
     const interval = setInterval(() => {
       fetchLeads();
-    }, 5000); // every 5 seconds
+    }, 3000); // slightly faster
 
     return () => clearInterval(interval);
   }, []);
@@ -92,8 +94,7 @@ export default function Dashboard() {
         }),
       });
 
-      // 🔥 NEW — refresh after sending
-      await fetchLeads();
+      await fetchLeads(); // refresh
 
       setSendingId(null);
       setSentId(id);
@@ -153,6 +154,7 @@ export default function Dashboard() {
                 <th className="px-6 py-3">Summary</th>
                 <th className="px-6 py-3">Response</th>
                 <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Last Update</th> {/* 🔥 NEW */}
                 <th className="px-6 py-3">Actions</th>
               </tr>
             </thead>
@@ -187,10 +189,14 @@ export default function Dashboard() {
                     >
                       <option value="new">New</option>
                       <option value="contacted">Contacted</option>
-                      <option value="scheduled">Scheduled</option>{" "}
-                      {/* 🔥 NEW */}
+                      <option value="scheduled">Scheduled</option>
                       <option value="closed">Closed</option>
                     </select>
+                  </td>
+
+                  {/* 🔥 NEW — shows activity */}
+                  <td className="px-6 py-4 text-xs text-gray-500">
+                    {lead.created_at}
                   </td>
 
                   <td className="px-6 py-4">
