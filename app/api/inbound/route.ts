@@ -10,13 +10,13 @@ export async function POST(req: Request) {
 
     const data = body?.data || {};
 
-    // 🔥 FIX 1 — more tolerant email parsing
+    // email parsing
     let rawEmail = data?.from?.email || data?.from || body?.email || "";
 
     const emailMatch = rawEmail.match(/<(.+?)>/);
     const email = (emailMatch ? emailMatch[1] : rawEmail).trim().toLowerCase();
 
-    // 🔥 FIX 2 — more tolerant message parsing
+    // message parsing
     let message = data?.text || data?.html || data?.snippet || "";
 
     if (message && message.includes("<")) {
@@ -25,7 +25,6 @@ export async function POST(req: Request) {
 
     message = message.trim();
 
-    // 🔥 IMPORTANT — do NOT hard fail anymore
     if (!email || !message) {
       console.log("⚠️ Missing parsed fields but continuing:", {
         email,
@@ -36,7 +35,8 @@ export async function POST(req: Request) {
     console.log("Parsed email:", email);
     console.log("Parsed message:", message);
 
-    const { data: lead, error: leadError } = await supabase
+    // 🔥 STEP 1 — find existing lead
+    const { data: lead } = await supabase
       .from("leads")
       .select("*")
       .ilike("email", email)
@@ -44,22 +44,45 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (leadError || !lead) {
-      console.log("Lead not found for:", email);
-      return Response.json(
-        { success: false, error: "Lead not found" },
-        { status: 404 },
-      );
+    let currentLead = lead;
+
+    // 🔥 STEP 2 — create lead if not exists
+    if (!currentLead) {
+      console.log("Creating new lead for:", email);
+
+      const { data: newLead, error: insertLeadError } = await supabase
+        .from("leads")
+        .insert([
+          {
+            name: email.split("@")[0],
+            email: email,
+            summary: message.substring(0, 120),
+            status: "new",
+          },
+        ])
+        .select()
+        .single();
+
+      if (insertLeadError || !newLead) {
+        console.error("Lead creation failed:", insertLeadError);
+
+        return Response.json(
+          { success: false, error: "Failed to create lead" },
+          { status: 500 },
+        );
+      }
+
+      currentLead = newLead;
     }
 
-    console.log("Lead found:", lead.id);
+    console.log("Lead ID:", currentLead.id);
 
     // 1. store customer message
     const { error: insertCustomerError } = await supabase
       .from("messages")
       .insert([
         {
-          lead_id: lead.id,
+          lead_id: currentLead.id,
           sender: "customer",
           content: message,
         },
@@ -77,16 +100,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 update lead so dashboard reflects activity
+    // update lead for dashboard
     await supabase
       .from("leads")
       .update({
         summary: message.substring(0, 120),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", lead.id);
+      .eq("id", currentLead.id);
 
-    // 🔥 detect scheduling
+    // detect scheduling
     const scheduling = await detectScheduling(message);
 
     console.log("Scheduling detection:", scheduling);
@@ -99,7 +122,7 @@ export async function POST(req: Request) {
           scheduled_date: scheduling.date,
           scheduled_time: scheduling.time,
         })
-        .eq("id", lead.id);
+        .eq("id", currentLead.id);
 
       await sendEmail(
         email,
@@ -120,7 +143,7 @@ export async function POST(req: Request) {
     const { data: history } = await supabase
       .from("messages")
       .select("sender, content")
-      .eq("lead_id", lead.id)
+      .eq("lead_id", currentLead.id)
       .order("created_at", { ascending: true });
 
     const conversation = (history || []).map((m) => ({
@@ -139,7 +162,7 @@ export async function POST(req: Request) {
       .from("messages")
       .insert([
         {
-          lead_id: lead.id,
+          lead_id: currentLead.id,
           sender: "system",
           content: reply,
         },
