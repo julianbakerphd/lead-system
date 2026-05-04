@@ -21,7 +21,7 @@ Message:
 `,
   });
 
-  const text = response.output_text;
+  const text = response.output_text ?? "";
 
   const cleaned = text
     .replace(/```json/g, "")
@@ -32,7 +32,6 @@ Message:
     return JSON.parse(cleaned);
   } catch (err) {
     console.error("AI PARSE ERROR:", cleaned);
-
     throw new Error("Invalid AI JSON output");
   }
 }
@@ -56,5 +55,5 @@ Message:
 `,
   });
 
-  return response.output_text.trim();
+  return (response.output_text ?? "").trim();
 }
