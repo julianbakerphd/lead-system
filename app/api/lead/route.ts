@@ -1,4 +1,5 @@
 import supabase from "@/lib/supabase";
+import { processLead } from "@/lib/ai";
 
 async function logStep(
   request_id: string,
@@ -22,12 +23,10 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // 🔹 Log incoming request
     await logStep(request_id, "received", body);
 
     const { name, email, message } = body;
 
-    // 🔹 Validate required fields
     if (!name || !email || !message) {
       await logStep(
         request_id,
@@ -42,7 +41,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔹 Validate email format
     if (!email.includes("@")) {
       await logStep(
         request_id,
@@ -57,13 +55,40 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔹 Log validated data
     await logStep(request_id, "validated", { name, email, message });
 
-    // 🔹 Insert into database
+    let aiResult;
+
+    try {
+      aiResult = await processLead(message);
+      await logStep(request_id, "ai_processed", aiResult);
+    } catch (aiError: any) {
+      await logStep(
+        request_id,
+        "ai_error",
+        { message },
+        aiError?.message || "AI processing failed",
+      );
+
+      return Response.json(
+        { success: false, error: "AI processing failed" },
+        { status: 500 },
+      );
+    }
+
     const { data, error } = await supabase
       .from("leads")
-      .insert([{ name, email, message }])
+      .insert([
+        {
+          name,
+          email,
+          message,
+          summary: aiResult.summary || "No summary",
+          category: aiResult.category || "unknown",
+          priority: aiResult.priority || "medium",
+          lead_quality: aiResult.lead_quality || "unknown",
+        },
+      ])
       .select();
 
     if (error) {
@@ -75,19 +100,23 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔹 Log successful insert
     await logStep(request_id, "inserted", data);
 
     return Response.json({
       success: true,
       data,
     });
-  } catch (err) {
-    await logStep(request_id, "json_error", null, "Invalid JSON");
+  } catch (err: any) {
+    await logStep(
+      request_id,
+      "unexpected_error",
+      null,
+      err?.message || "Unknown error",
+    );
 
     return Response.json(
-      { success: false, error: "Invalid JSON" },
-      { status: 400 },
+      { success: false, error: "Unexpected error" },
+      { status: 500 },
     );
   }
 }
