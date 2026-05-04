@@ -8,7 +8,6 @@ export async function POST(req: Request) {
 
     console.log("INBOUND:", body);
 
-    // ✅ Extract email safely (handle "Name <email>" format)
     let rawEmail = body?.data?.from || body?.email;
 
     const emailMatch = rawEmail?.match(/<(.+?)>/);
@@ -28,7 +27,6 @@ export async function POST(req: Request) {
     console.log("Parsed email:", email);
     console.log("Parsed message:", message);
 
-    // ✅ FIX — case-insensitive lookup + latest lead
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .select("*")
@@ -47,7 +45,7 @@ export async function POST(req: Request) {
 
     console.log("Lead found:", lead.id);
 
-    // ✅ Insert customer message (with error check)
+    // 🔥 FIX — return REAL DB error
     const { error: insertCustomerError } = await supabase
       .from("messages")
       .insert([
@@ -59,17 +57,19 @@ export async function POST(req: Request) {
       ]);
 
     if (insertCustomerError) {
-      console.error("Customer message insert failed:", insertCustomerError);
+      console.error("Customer insert error:", insertCustomerError);
+
       return Response.json(
-        { success: false, error: "Insert failed" },
+        {
+          success: false,
+          error: insertCustomerError.message, // ✅ THIS IS THE FIX
+        },
         { status: 500 },
       );
     }
 
-    // 3. generate AI reply
     const reply = await generateResponse(message);
 
-    // ✅ Insert system reply (with error check)
     const { error: insertSystemError } = await supabase
       .from("messages")
       .insert([
@@ -81,10 +81,9 @@ export async function POST(req: Request) {
       ]);
 
     if (insertSystemError) {
-      console.error("System message insert failed:", insertSystemError);
+      console.error("System insert error:", insertSystemError);
     }
 
-    // 5. send reply email
     await sendEmail(email, "Re: Your inquiry", reply);
 
     console.log("Reply sent to:", email);
