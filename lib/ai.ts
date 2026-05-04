@@ -39,7 +39,6 @@ Message:
 export async function generateResponse(
   messages: { role: string; content: string }[],
 ) {
-  // 🔥 Convert conversation into a readable prompt
   const conversationText = messages
     .map((m) => {
       const speaker = m.role === "user" ? "Customer" : "Assistant";
@@ -68,4 +67,52 @@ Assistant:
   });
 
   return (response.output_text ?? "").trim();
+}
+
+// 🔥 NEW — Step 17 scheduling detection
+export async function detectScheduling(message: string) {
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: `
+You are extracting scheduling intent.
+
+Return JSON ONLY.
+
+Fields:
+- is_scheduling (true or false)
+- date (string or null)
+- time (string or null)
+
+Examples:
+
+"3pm tomorrow works"
+→ { "is_scheduling": true, "date": "tomorrow", "time": "3pm" }
+
+"next week is fine"
+→ { "is_scheduling": true, "date": "next week", "time": null }
+
+"thanks"
+→ { "is_scheduling": false, "date": null, "time": null }
+
+Message:
+"${message}"
+`,
+  });
+
+  const text = response.output_text ?? "";
+
+  const cleaned = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return {
+      is_scheduling: false,
+      date: null,
+      time: null,
+    };
+  }
 }

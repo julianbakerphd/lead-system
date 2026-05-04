@@ -1,5 +1,5 @@
 import supabase from "@/lib/supabase";
-import { generateResponse } from "@/lib/ai";
+import { generateResponse, detectScheduling } from "@/lib/ai"; // ✅ UPDATED
 import { sendEmail } from "@/lib/email";
 
 export async function POST(req: Request) {
@@ -15,11 +15,7 @@ export async function POST(req: Request) {
       ?.trim()
       ?.toLowerCase();
 
-    const message =
-      body?.data?.text ||
-      body?.data?.html ||
-      body?.message ||
-      "";
+    const message = body?.data?.text || body?.data?.html || body?.message || "";
 
     if (!email || !message) {
       return Response.json(
@@ -72,29 +68,57 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 NEW — get conversation history
+    // 🔥 NEW — detect scheduling
+    const scheduling = await detectScheduling(message);
+
+    console.log("Scheduling detection:", scheduling);
+
+    if (scheduling.is_scheduling) {
+      // 🔥 update lead
+      await supabase
+        .from("leads")
+        .update({
+          status: "scheduled",
+          scheduled_date: scheduling.date,
+          scheduled_time: scheduling.time,
+        })
+        .eq("id", lead.id);
+
+      // 🔥 send confirmation
+      await sendEmail(
+        email,
+        "Appointment Scheduled",
+        `Great — we have you scheduled for ${scheduling.time || ""} ${scheduling.date || ""}. We'll follow up shortly.`,
+      );
+
+      console.log("Lead scheduled — stopping AI loop");
+
+      return Response.json({
+        success: true,
+        scheduled: true,
+      });
+    }
+
+    // 🔥 EXISTING FLOW CONTINUES BELOW
+
     const { data: history } = await supabase
       .from("messages")
       .select("sender, content")
       .eq("lead_id", lead.id)
       .order("created_at", { ascending: true });
 
-    // 🔥 NEW — format for AI
     const conversation = (history || []).map((m) => ({
       role: m.sender === "customer" ? "user" : "assistant",
       content: m.content,
     }));
 
-    // 🔥 NEW — include latest message
     conversation.push({
       role: "user",
       content: message,
     });
 
-    // 🔥 UPDATED — contextual AI response
     const reply = await generateResponse(conversation);
 
-    // 4. store system reply
     const { error: insertSystemError } = await supabase
       .from("messages")
       .insert([
@@ -109,7 +133,6 @@ export async function POST(req: Request) {
       console.error("System insert error:", insertSystemError);
     }
 
-    // 5. send email
     await sendEmail(email, "Re: Your inquiry", reply);
 
     console.log("Reply sent to:", email);
