@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 export default function Dashboard() {
   const [leads, setLeads] = useState<any[]>([]);
+  const [sendingId, setSendingId] = useState<number | null>(null); // ✅ NEW
+  const [sentId, setSentId] = useState<number | null>(null); // ✅ NEW
 
   useEffect(() => {
     fetch("/api/lead")
@@ -25,18 +27,31 @@ export default function Dashboard() {
     );
   }
 
-  // 🔥 UPDATED — proper resend (no new lead, no AI)
-  async function resendEmail(email: string, response: string) {
-    await fetch("/api/resend", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        response,
-      }),
-    });
+  // 🔥 UPDATED resend with UI feedback
+  async function resendEmail(id: number, email: string, response: string) {
+    try {
+      setSendingId(id); // show "Sending..."
+
+      await fetch("/api/resend", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          response,
+        }),
+      });
+
+      setSendingId(null);
+      setSentId(id); // show "Sent ✓"
+
+      // reset after 2 seconds
+      setTimeout(() => setSentId(null), 2000);
+    } catch (err) {
+      setSendingId(null);
+      console.error("Resend failed");
+    }
   }
 
   return (
@@ -79,13 +94,25 @@ export default function Dashboard() {
                     <button
                       onClick={() =>
                         resendEmail(
+                          lead.id,
                           lead.email,
-                          lead.suggested_response, // ✅ changed here
+                          lead.suggested_response,
                         )
                       }
-                      className="bg-blue-500 text-white px-3 py-1 rounded"
+                      disabled={sendingId === lead.id}
+                      className={`px-3 py-1 rounded text-white ${
+                        sendingId === lead.id
+                          ? "bg-gray-400"
+                          : sentId === lead.id
+                            ? "bg-green-500"
+                            : "bg-blue-500 hover:bg-blue-600"
+                      }`}
                     >
-                      Resend
+                      {sendingId === lead.id
+                        ? "Sending..."
+                        : sentId === lead.id
+                          ? "Sent ✓"
+                          : "Resend"}
                     </button>
                   </td>
                 </tr>
