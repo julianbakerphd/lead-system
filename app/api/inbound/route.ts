@@ -26,22 +26,31 @@ export async function POST(req: Request) {
     const emailMatch = rawEmail.match(/<(.+?)>/);
     const email = (emailMatch ? emailMatch[1] : rawEmail).trim().toLowerCase();
 
-    // 🔥 REAL FIX — Resend webhook only gives metadata.
-    // We must fetch the full received email using email_id.
+    // Fetch full received email body from Resend
     let message = "";
 
-    if (data?.email_id) {
+    const emailId = data?.email_id || data?.id;
+
+    if (emailId) {
       const { data: receivedEmail, error: receivedEmailError } =
-        await resend.emails.receiving.get(data.email_id);
+        await resend.emails.receiving.get(emailId);
 
       if (receivedEmailError) {
         console.error("Failed to fetch received email:", receivedEmailError);
       }
 
+      console.log(
+        "RECEIVED EMAIL FULL:",
+        JSON.stringify(receivedEmail, null, 2),
+      );
+
+      const received: any = receivedEmail;
+
       message =
-        receivedEmail?.text ||
-        (receivedEmail?.html ? stripHtml(receivedEmail.html) : "") ||
-        data?.subject ||
+        received?.text ||
+        (received?.html ? stripHtml(received.html) : "") ||
+        received?.body?.text ||
+        (received?.body?.html ? stripHtml(received.body.html) : "") ||
         "";
     } else {
       // fallback for Postman/manual tests
