@@ -16,14 +16,15 @@ export async function POST(req: Request) {
     const emailMatch = rawEmail.match(/<(.+?)>/);
     const email = (emailMatch ? emailMatch[1] : rawEmail).trim().toLowerCase();
 
-    // message parsing
-    let message = data?.text || data?.html || data?.snippet || "";
+    // 🔥 FIXED message parsing (THIS is the key fix)
+    let message = data?.text || data?.snippet || "";
 
-    if (message && message.includes("<")) {
-      message = message.replace(/<[^>]+>/g, "");
+    // fallback to html if no text
+    if (!message && data?.html) {
+      message = data.html.replace(/<[^>]+>/g, " ");
     }
 
-    message = message.trim();
+    message = message?.trim();
 
     if (!email || !message) {
       console.log("⚠️ Missing parsed fields but continuing:", {
