@@ -8,7 +8,7 @@ export default function Dashboard() {
   const [sentId, setSentId] = useState<number | null>(null);
   const [editedResponses, setEditedResponses] = useState<{
     [key: number]: string;
-  }>({}); // ✅ NEW
+  }>({});
 
   useEffect(() => {
     fetch("/api/lead")
@@ -27,6 +27,24 @@ export default function Dashboard() {
 
     setLeads((prev) =>
       prev.map((lead) => (lead.id === id ? { ...lead, status } : lead)),
+    );
+  }
+
+  // ✅ NEW — save edited response to DB
+  async function saveResponse(id: number, response: string) {
+    await fetch("/api/update-response", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id, response }),
+    });
+
+    // update local UI state to reflect saved value
+    setLeads((prev) =>
+      prev.map((lead) =>
+        lead.id === id ? { ...lead, suggested_response: response } : lead,
+      ),
     );
   }
 
@@ -67,7 +85,7 @@ export default function Dashboard() {
                 <th className="px-6 py-3">Name</th>
                 <th className="px-6 py-3">Email</th>
                 <th className="px-6 py-3">Summary</th>
-                <th className="px-6 py-3">Response</th> {/* ✅ NEW COLUMN */}
+                <th className="px-6 py-3">Response</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3">Actions</th>
               </tr>
@@ -80,7 +98,6 @@ export default function Dashboard() {
                   <td className="px-6 py-4">{lead.email}</td>
                   <td className="px-6 py-4">{lead.summary}</td>
 
-                  {/* ✅ EDITABLE RESPONSE */}
                   <td className="px-6 py-4">
                     <textarea
                       className="w-full border rounded p-2 text-sm"
@@ -109,12 +126,26 @@ export default function Dashboard() {
                   </td>
 
                   <td className="px-6 py-4 space-x-2">
+                    {/* ✅ NEW Save button */}
+                    <button
+                      onClick={() =>
+                        saveResponse(
+                          lead.id,
+                          editedResponses[lead.id] ?? lead.suggested_response,
+                        )
+                      }
+                      className="bg-gray-600 text-white px-3 py-1 rounded"
+                    >
+                      Save
+                    </button>
+
+                    {/* Existing Send button */}
                     <button
                       onClick={() =>
                         resendEmail(
                           lead.id,
                           lead.email,
-                          editedResponses[lead.id] ?? lead.suggested_response, // ✅ KEY CHANGE
+                          editedResponses[lead.id] ?? lead.suggested_response,
                         )
                       }
                       disabled={sendingId === lead.id}
@@ -130,8 +161,7 @@ export default function Dashboard() {
                         ? "Sending..."
                         : sentId === lead.id
                           ? "Sent ✓"
-                          : "Send"}{" "}
-                      {/* ✅ renamed */}
+                          : "Send"}
                     </button>
                   </td>
                 </tr>
