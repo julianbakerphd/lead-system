@@ -23,5 +23,10 @@ Message:
 
   const text = response.output_text;
 
-  return JSON.parse(text);
+  const cleaned = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+
+  return JSON.parse(cleaned);
 }
