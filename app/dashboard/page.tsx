@@ -13,12 +13,26 @@ export default function Dashboard() {
     [key: number]: string;
   }>({});
 
-  const [mode, setMode] = useState<"manual" | "auto">("manual"); // ✅ NEW
+  const [mode, setMode] = useState<"manual" | "auto">("manual");
+
+  // 🔥 NEW — reusable fetch
+  async function fetchLeads() {
+    const res = await fetch("/api/lead");
+    const data = await res.json();
+    setLeads(data.data || []);
+  }
 
   useEffect(() => {
-    fetch("/api/lead")
-      .then((res) => res.json())
-      .then((data) => setLeads(data.data || []));
+    fetchLeads();
+  }, []);
+
+  // 🔥 NEW — polling (this is what makes inbound visible)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchLeads();
+    }, 5000); // every 5 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   async function updateStatus(id: number, status: string) {
@@ -78,6 +92,9 @@ export default function Dashboard() {
         }),
       });
 
+      // 🔥 NEW — refresh after sending
+      await fetchLeads();
+
       setSendingId(null);
       setSentId(id);
 
@@ -88,7 +105,7 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ NEW — auto mode behavior
+  // AUTO MODE
   useEffect(() => {
     if (mode !== "auto") return;
 
@@ -105,7 +122,6 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold mb-6">Leads Dashboard</h1>
 
-        {/* ✅ NEW — Mode toggle */}
         <div className="mb-4 flex items-center space-x-4">
           <span className="font-medium">Mode:</span>
 
@@ -171,6 +187,8 @@ export default function Dashboard() {
                     >
                       <option value="new">New</option>
                       <option value="contacted">Contacted</option>
+                      <option value="scheduled">Scheduled</option>{" "}
+                      {/* 🔥 NEW */}
                       <option value="closed">Closed</option>
                     </select>
                   </td>
@@ -208,7 +226,7 @@ export default function Dashboard() {
                             editedResponses[lead.id] ?? lead.suggested_response,
                           )
                         }
-                        disabled={sendingId === lead.id || mode === "auto"} // ✅ UPDATED
+                        disabled={sendingId === lead.id || mode === "auto"}
                         className={`px-3 py-1 rounded text-white ${
                           sendingId === lead.id
                             ? "bg-gray-400"
