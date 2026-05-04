@@ -8,34 +8,29 @@ export async function POST(req: Request) {
 
     console.log("INBOUND:", JSON.stringify(body, null, 2));
 
-    // 🔥 FIX 1 — handle Resend structured sender
-    let rawEmail =
-      body?.data?.from?.email || // Resend structured format
-      body?.data?.from || // fallback
-      body?.email;
+    const data = body?.data || {};
 
-    const emailMatch = rawEmail?.match(/<(.+?)>/);
-    const email = (emailMatch ? emailMatch[1] : rawEmail)
-      ?.trim()
-      ?.toLowerCase();
+    // 🔥 FIX 1 — more tolerant email parsing
+    let rawEmail = data?.from?.email || data?.from || body?.email || "";
 
-    // 🔥 FIX 2 — robust message extraction
-    let message = body?.data?.text || body?.data?.html || body?.message || "";
+    const emailMatch = rawEmail.match(/<(.+?)>/);
+    const email = (emailMatch ? emailMatch[1] : rawEmail).trim().toLowerCase();
 
-    // 🔥 NEW — handle HTML-only emails
-    if (!message && body?.data?.html) {
-      message = body.data.html.replace(/<[^>]+>/g, "");
+    // 🔥 FIX 2 — more tolerant message parsing
+    let message = data?.text || data?.html || data?.snippet || "";
+
+    if (message && message.includes("<")) {
+      message = message.replace(/<[^>]+>/g, "");
     }
 
-    message = message?.trim();
+    message = message.trim();
 
+    // 🔥 IMPORTANT — do NOT hard fail anymore
     if (!email || !message) {
-      console.log("❌ Missing parsed fields:", { email, message });
-
-      return Response.json(
-        { success: false, error: "Missing email or message" },
-        { status: 400 },
-      );
+      console.log("⚠️ Missing parsed fields but continuing:", {
+        email,
+        message,
+      });
     }
 
     console.log("Parsed email:", email);
@@ -82,7 +77,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 NEW — update lead so dashboard reflects activity
+    // 🔥 update lead so dashboard reflects activity
     await supabase
       .from("leads")
       .update({
@@ -120,7 +115,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 🔥 EXISTING FLOW
+    // EXISTING FLOW
 
     const { data: history } = await supabase
       .from("messages")
