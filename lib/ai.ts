@@ -28,5 +28,33 @@ Message:
     .replace(/```/g, "")
     .trim();
 
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("AI PARSE ERROR:", cleaned);
+
+    throw new Error("Invalid AI JSON output");
+  }
+}
+
+export async function generateResponse(message: string) {
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: `
+You are a helpful business assistant.
+
+Write a short, professional reply to this customer inquiry.
+
+Keep it:
+- friendly
+- clear
+- concise
+- ready to send
+
+Message:
+"${message}"
+`,
+  });
+
+  return response.output_text.trim();
 }

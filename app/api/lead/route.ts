@@ -1,5 +1,5 @@
 import supabase from "@/lib/supabase";
-import { processLead } from "@/lib/ai";
+import { processLead, generateResponse } from "@/lib/ai";
 
 async function logStep(
   request_id: string,
@@ -76,10 +76,31 @@ export async function POST(req: Request) {
       );
     }
 
+    // 🔥 NEW — generate response
+    let reply: string;
+
+    try {
+      reply = await generateResponse(message);
+      await logStep(request_id, "response_generated", { reply });
+    } catch (respError: any) {
+      await logStep(
+        request_id,
+        "response_error",
+        { message },
+        respError?.message || "Response generation failed",
+      );
+
+      return Response.json(
+        { success: false, error: "Response generation failed" },
+        { status: 500 },
+      );
+    }
+
     const { data, error } = await supabase
       .from("leads")
       .insert([
         {
+          request_id, // ✅ important fix
           name,
           email,
           message,
@@ -87,6 +108,8 @@ export async function POST(req: Request) {
           category: aiResult.category || "unknown",
           priority: aiResult.priority || "medium",
           lead_quality: aiResult.lead_quality || "unknown",
+          suggested_response: reply, // ✅ new
+          status: "new", // ✅ new
         },
       ])
       .select();
