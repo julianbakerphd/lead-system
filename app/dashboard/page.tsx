@@ -6,7 +6,7 @@ export default function Dashboard() {
   const [leads, setLeads] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch("/api/leads")
+    fetch("/api/lead")
       .then((res) => res.json())
       .then((data) => setLeads(data.data || []));
   }, []);
