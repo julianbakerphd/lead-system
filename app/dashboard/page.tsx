@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 
 export default function Dashboard() {
   const [leads, setLeads] = useState<any[]>([]);
-  const [sendingId, setSendingId] = useState<number | null>(null); // ✅ NEW
-  const [sentId, setSentId] = useState<number | null>(null); // ✅ NEW
+  const [sendingId, setSendingId] = useState<number | null>(null);
+  const [sentId, setSentId] = useState<number | null>(null);
+  const [editedResponses, setEditedResponses] = useState<{
+    [key: number]: string;
+  }>({}); // ✅ NEW
 
   useEffect(() => {
     fetch("/api/lead")
@@ -27,10 +30,9 @@ export default function Dashboard() {
     );
   }
 
-  // 🔥 UPDATED resend with UI feedback
   async function resendEmail(id: number, email: string, response: string) {
     try {
-      setSendingId(id); // show "Sending..."
+      setSendingId(id);
 
       await fetch("/api/resend", {
         method: "POST",
@@ -44,9 +46,8 @@ export default function Dashboard() {
       });
 
       setSendingId(null);
-      setSentId(id); // show "Sent ✓"
+      setSentId(id);
 
-      // reset after 2 seconds
       setTimeout(() => setSentId(null), 2000);
     } catch (err) {
       setSendingId(null);
@@ -66,6 +67,7 @@ export default function Dashboard() {
                 <th className="px-6 py-3">Name</th>
                 <th className="px-6 py-3">Email</th>
                 <th className="px-6 py-3">Summary</th>
+                <th className="px-6 py-3">Response</th> {/* ✅ NEW COLUMN */}
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3">Actions</th>
               </tr>
@@ -77,6 +79,22 @@ export default function Dashboard() {
                   <td className="px-6 py-4">{lead.name}</td>
                   <td className="px-6 py-4">{lead.email}</td>
                   <td className="px-6 py-4">{lead.summary}</td>
+
+                  {/* ✅ EDITABLE RESPONSE */}
+                  <td className="px-6 py-4">
+                    <textarea
+                      className="w-full border rounded p-2 text-sm"
+                      value={
+                        editedResponses[lead.id] ?? lead.suggested_response
+                      }
+                      onChange={(e) =>
+                        setEditedResponses((prev) => ({
+                          ...prev,
+                          [lead.id]: e.target.value,
+                        }))
+                      }
+                    />
+                  </td>
 
                   <td className="px-6 py-4">
                     <select
@@ -96,7 +114,7 @@ export default function Dashboard() {
                         resendEmail(
                           lead.id,
                           lead.email,
-                          lead.suggested_response,
+                          editedResponses[lead.id] ?? lead.suggested_response, // ✅ KEY CHANGE
                         )
                       }
                       disabled={sendingId === lead.id}
@@ -112,7 +130,8 @@ export default function Dashboard() {
                         ? "Sending..."
                         : sentId === lead.id
                           ? "Sent ✓"
-                          : "Resend"}
+                          : "Send"}{" "}
+                      {/* ✅ renamed */}
                     </button>
                   </td>
                 </tr>
