@@ -1,6 +1,6 @@
 import supabase from "@/lib/supabase";
 import { processLead, generateResponse } from "@/lib/ai";
-import { sendEmail } from "@/lib/email"; // ✅ NEW
+import { sendEmail } from "@/lib/email";
 
 async function logStep(
   request_id: string,
@@ -18,6 +18,25 @@ async function logStep(
   ]);
 }
 
+//
+// ✅ ADD THIS (GET handler)
+//
+export async function GET() {
+  const { data, error } = await supabase
+    .from("leads")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return Response.json({ success: false, error: error.message });
+  }
+
+  return Response.json({ success: true, data });
+}
+
+//
+// EXISTING POST HANDLER (unchanged)
+//
 export async function POST(req: Request) {
   const request_id = crypto.randomUUID();
 
@@ -77,7 +96,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 Generate response
     let reply: string;
 
     try {
@@ -97,7 +115,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 NEW — Send email
     try {
       await sendEmail(email, "Thanks for your inquiry", reply);
       await logStep(request_id, "email_sent", { email });
@@ -108,7 +125,6 @@ export async function POST(req: Request) {
         { email },
         emailError?.message || "Email failed",
       );
-      // ❗ Notice: we do NOT fail the whole request
     }
 
     const { data, error } = await supabase
