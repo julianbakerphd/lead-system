@@ -36,22 +36,34 @@ Message:
   }
 }
 
-export async function generateResponse(message: string) {
+export async function generateResponse(
+  messages: { role: string; content: string }[],
+) {
+  // 🔥 Convert conversation into a readable prompt
+  const conversationText = messages
+    .map((m) => {
+      const speaker = m.role === "user" ? "Customer" : "Assistant";
+      return `${speaker}: ${m.content}`;
+    })
+    .join("\n");
+
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
     input: `
 You are a helpful business assistant.
 
-Write a short, professional reply to this customer inquiry.
+Continue this conversation naturally and professionally.
 
-Keep it:
+Keep replies:
+- short
 - friendly
 - clear
-- concise
-- ready to send
+- focused on scheduling or helping the customer
 
-Message:
-"${message}"
+Conversation:
+${conversationText}
+
+Assistant:
 `,
   });
 
