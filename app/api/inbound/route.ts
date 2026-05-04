@@ -5,8 +5,6 @@ import { sendEmail } from "@/lib/email";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log("🔥 INBOUND HIT");
-    console.log(JSON.stringify(body, null, 2));
 
     console.log("INBOUND:", body);
 
