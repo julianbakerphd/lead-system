@@ -8,8 +8,13 @@ export async function POST(req: Request) {
 
     console.log("INBOUND:", body);
 
-    // ✅ FIX 1 — support BOTH Resend + Postman formats
-    const email = body?.data?.from || body?.email;
+    // ✅ Extract email safely (handle "Name <email>" format)
+    let rawEmail = body?.data?.from || body?.email;
+
+    const emailMatch = rawEmail?.match(/<(.+?)>/);
+    const email = (emailMatch ? emailMatch[1] : rawEmail)
+      ?.trim()
+      ?.toLowerCase();
 
     const message = body?.data?.text || body?.data?.html || body?.message || "";
 
@@ -20,12 +25,15 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ FIX 2 — safer lead lookup (no crash on duplicates)
+    console.log("Parsed email:", email);
+    console.log("Parsed message:", message);
+
+    // ✅ FIX — case-insensitive lookup + latest lead
     const { data: lead, error: leadError } = await supabase
       .from("leads")
       .select("*")
-      .eq("email", email)
-      .order("created_at", { ascending: false }) // pick latest lead
+      .ilike("email", email)
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -37,26 +45,44 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. store customer message
-    await supabase.from("messages").insert([
-      {
-        lead_id: lead.id,
-        sender: "customer",
-        content: message,
-      },
-    ]);
+    console.log("Lead found:", lead.id);
+
+    // ✅ Insert customer message (with error check)
+    const { error: insertCustomerError } = await supabase
+      .from("messages")
+      .insert([
+        {
+          lead_id: lead.id,
+          sender: "customer",
+          content: message,
+        },
+      ]);
+
+    if (insertCustomerError) {
+      console.error("Customer message insert failed:", insertCustomerError);
+      return Response.json(
+        { success: false, error: "Insert failed" },
+        { status: 500 },
+      );
+    }
 
     // 3. generate AI reply
     const reply = await generateResponse(message);
 
-    // 4. store system reply
-    await supabase.from("messages").insert([
-      {
-        lead_id: lead.id,
-        sender: "system",
-        content: reply,
-      },
-    ]);
+    // ✅ Insert system reply (with error check)
+    const { error: insertSystemError } = await supabase
+      .from("messages")
+      .insert([
+        {
+          lead_id: lead.id,
+          sender: "system",
+          content: reply,
+        },
+      ]);
+
+    if (insertSystemError) {
+      console.error("System message insert failed:", insertSystemError);
+    }
 
     // 5. send reply email
     await sendEmail(email, "Re: Your inquiry", reply);
