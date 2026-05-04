@@ -19,7 +19,7 @@ async function logStep(
 }
 
 //
-// ✅ ADD THIS (GET handler)
+// ✅ GET handler (unchanged)
 //
 export async function GET() {
   const { data, error } = await supabase
@@ -35,7 +35,7 @@ export async function GET() {
 }
 
 //
-// EXISTING POST HANDLER (unchanged)
+// ✅ POST handler (MINIMAL UPDATE)
 //
 export async function POST(req: Request) {
   const request_id = crypto.randomUUID();
@@ -155,6 +155,19 @@ export async function POST(req: Request) {
     }
 
     await logStep(request_id, "inserted", data);
+
+    // ✅ NEW — store initial system message (MINIMAL ADDITION)
+    const lead = data?.[0];
+
+    if (lead) {
+      await supabase.from("messages").insert([
+        {
+          lead_id: lead.id,
+          sender: "system",
+          content: reply,
+        },
+      ]);
+    }
 
     return Response.json({
       success: true,
