@@ -20,22 +20,21 @@ export default function Dashboard() {
       body: JSON.stringify({ id, status }),
     });
 
-    // refresh UI
     setLeads((prev) =>
       prev.map((lead) => (lead.id === id ? { ...lead, status } : lead)),
     );
   }
 
-  async function resendEmail(email: string, message: string) {
-    await fetch("/api/lead", {
+  // 🔥 UPDATED — proper resend (no new lead, no AI)
+  async function resendEmail(email: string, response: string) {
+    await fetch("/api/resend", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: "Follow-up",
         email,
-        message,
+        response,
       }),
     });
   }
@@ -78,7 +77,12 @@ export default function Dashboard() {
 
                   <td className="px-6 py-4 space-x-2">
                     <button
-                      onClick={() => resendEmail(lead.email, lead.message)}
+                      onClick={() =>
+                        resendEmail(
+                          lead.email,
+                          lead.suggested_response, // ✅ changed here
+                        )
+                      }
                       className="bg-blue-500 text-white px-3 py-1 rounded"
                     >
                       Resend
