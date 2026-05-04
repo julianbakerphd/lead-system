@@ -99,7 +99,12 @@ export async function POST(req: Request) {
     let reply: string;
 
     try {
-      reply = await generateResponse(message);
+      reply = await generateResponse([
+        {
+          role: "user",
+          content: message,
+        },
+      ]);
       await logStep(request_id, "response_generated", { reply });
     } catch (respError: any) {
       await logStep(
