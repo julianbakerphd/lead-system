@@ -6,6 +6,9 @@ export default function Dashboard() {
   const [leads, setLeads] = useState<any[]>([]);
   const [sendingId, setSendingId] = useState<number | null>(null);
   const [sentId, setSentId] = useState<number | null>(null);
+  const [savingId, setSavingId] = useState<number | null>(null); // ✅ NEW
+  const [savedId, setSavedId] = useState<number | null>(null); // ✅ NEW
+
   const [editedResponses, setEditedResponses] = useState<{
     [key: number]: string;
   }>({});
@@ -30,22 +33,33 @@ export default function Dashboard() {
     );
   }
 
-  // ✅ NEW — save edited response to DB
+  // ✅ UPDATED — now with UI feedback
   async function saveResponse(id: number, response: string) {
-    await fetch("/api/update-response", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ id, response }),
-    });
+    try {
+      setSavingId(id);
 
-    // update local UI state to reflect saved value
-    setLeads((prev) =>
-      prev.map((lead) =>
-        lead.id === id ? { ...lead, suggested_response: response } : lead,
-      ),
-    );
+      await fetch("/api/update-response", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id, response }),
+      });
+
+      setLeads((prev) =>
+        prev.map((lead) =>
+          lead.id === id ? { ...lead, suggested_response: response } : lead,
+        ),
+      );
+
+      setSavingId(null);
+      setSavedId(id);
+
+      setTimeout(() => setSavedId(null), 2000);
+    } catch (err) {
+      setSavingId(null);
+      console.error("Save failed");
+    }
   }
 
   async function resendEmail(id: number, email: string, response: string) {
@@ -125,44 +139,58 @@ export default function Dashboard() {
                     </select>
                   </td>
 
-                  <td className="px-6 py-4 space-x-2">
-                    {/* ✅ NEW Save button */}
-                    <button
-                      onClick={() =>
-                        saveResponse(
-                          lead.id,
-                          editedResponses[lead.id] ?? lead.suggested_response,
-                        )
-                      }
-                      className="bg-gray-600 text-white px-3 py-1 rounded"
-                    >
-                      Save
-                    </button>
+                  {/* ✅ UPDATED ACTION COLUMN */}
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col space-y-2">
+                      {/* Save button */}
+                      <button
+                        onClick={() =>
+                          saveResponse(
+                            lead.id,
+                            editedResponses[lead.id] ?? lead.suggested_response,
+                          )
+                        }
+                        disabled={savingId === lead.id}
+                        className={`px-3 py-1 rounded text-white ${
+                          savingId === lead.id
+                            ? "bg-gray-400"
+                            : savedId === lead.id
+                              ? "bg-green-500"
+                              : "bg-gray-600 hover:bg-gray-700"
+                        }`}
+                      >
+                        {savingId === lead.id
+                          ? "Saving..."
+                          : savedId === lead.id
+                            ? "Saved ✓"
+                            : "Save"}
+                      </button>
 
-                    {/* Existing Send button */}
-                    <button
-                      onClick={() =>
-                        resendEmail(
-                          lead.id,
-                          lead.email,
-                          editedResponses[lead.id] ?? lead.suggested_response,
-                        )
-                      }
-                      disabled={sendingId === lead.id}
-                      className={`px-3 py-1 rounded text-white ${
-                        sendingId === lead.id
-                          ? "bg-gray-400"
+                      {/* Send button */}
+                      <button
+                        onClick={() =>
+                          resendEmail(
+                            lead.id,
+                            lead.email,
+                            editedResponses[lead.id] ?? lead.suggested_response,
+                          )
+                        }
+                        disabled={sendingId === lead.id}
+                        className={`px-3 py-1 rounded text-white ${
+                          sendingId === lead.id
+                            ? "bg-gray-400"
+                            : sentId === lead.id
+                              ? "bg-green-500"
+                              : "bg-blue-500 hover:bg-blue-600"
+                        }`}
+                      >
+                        {sendingId === lead.id
+                          ? "Sending..."
                           : sentId === lead.id
-                            ? "bg-green-500"
-                            : "bg-blue-500 hover:bg-blue-600"
-                      }`}
-                    >
-                      {sendingId === lead.id
-                        ? "Sending..."
-                        : sentId === lead.id
-                          ? "Sent ✓"
-                          : "Send"}
-                    </button>
+                            ? "Sent ✓"
+                            : "Send"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
