@@ -1,23 +1,37 @@
 import supabase from "@/lib/supabase";
-import { generateResponse, detectScheduling } from "@/lib/ai"; // ✅ UPDATED
+import { generateResponse, detectScheduling } from "@/lib/ai";
 import { sendEmail } from "@/lib/email";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    console.log("INBOUND:", body);
+    console.log("INBOUND:", JSON.stringify(body, null, 2));
 
-    let rawEmail = body?.data?.from || body?.email;
+    // 🔥 FIX 1 — handle Resend structured sender
+    let rawEmail =
+      body?.data?.from?.email || // Resend structured format
+      body?.data?.from || // fallback
+      body?.email;
 
     const emailMatch = rawEmail?.match(/<(.+?)>/);
     const email = (emailMatch ? emailMatch[1] : rawEmail)
       ?.trim()
       ?.toLowerCase();
 
-    const message = body?.data?.text || body?.data?.html || body?.message || "";
+    // 🔥 FIX 2 — robust message extraction
+    let message = body?.data?.text || body?.data?.html || body?.message || "";
+
+    // 🔥 NEW — handle HTML-only emails
+    if (!message && body?.data?.html) {
+      message = body.data.html.replace(/<[^>]+>/g, "");
+    }
+
+    message = message?.trim();
 
     if (!email || !message) {
+      console.log("❌ Missing parsed fields:", { email, message });
+
       return Response.json(
         { success: false, error: "Missing email or message" },
         { status: 400 },
@@ -68,13 +82,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔥 NEW — detect scheduling
+    // 🔥 detect scheduling
     const scheduling = await detectScheduling(message);
 
     console.log("Scheduling detection:", scheduling);
 
     if (scheduling.is_scheduling) {
-      // 🔥 update lead
       await supabase
         .from("leads")
         .update({
@@ -84,7 +97,6 @@ export async function POST(req: Request) {
         })
         .eq("id", lead.id);
 
-      // 🔥 send confirmation
       await sendEmail(
         email,
         "Appointment Scheduled",
@@ -99,7 +111,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 🔥 EXISTING FLOW CONTINUES BELOW
+    // 🔥 EXISTING FLOW
 
     const { data: history } = await supabase
       .from("messages")
