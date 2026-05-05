@@ -122,13 +122,71 @@ export default function Dashboard() {
     return new Date(value).toLocaleString();
   }
 
+  function previewMessage(value: string | null | undefined) {
+    if (!value) return "(no customer message yet)";
+
+    const cleaned = value
+      .split("\n")
+      .filter((line) => !line.trim().startsWith(">"))
+      .filter((line) => !line.toLowerCase().includes(" wrote:"))
+      .join("\n")
+      .trim();
+
+    if (cleaned.length <= 220) return cleaned;
+
+    return `${cleaned.slice(0, 220)}...`;
+  }
+
+  function statusClass(status: string) {
+    if (status === "scheduled") return "bg-green-100 text-green-700";
+    if (status === "contacted") return "bg-blue-100 text-blue-700";
+    if (status === "closed") return "bg-gray-200 text-gray-700";
+    return "bg-yellow-100 text-yellow-700";
+  }
+
+  const totalLeads = leads.length;
+  const scheduledLeads = leads.filter((lead) => lead.status === "scheduled").length;
+  const newLeads = leads.filter((lead) => lead.status === "new").length;
+  const autoRepliedLeads = leads.filter(
+    (lead) => lead.latest_system_message || lead.suggested_response,
+  ).length;
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Leads Dashboard</h1>
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-3xl font-bold">Smart Email Leads Dashboard</h1>
+            <p className="text-sm text-gray-600 mt-1">
+              AI-powered inbound email replies, lead tracking, and conversation history.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-xs text-gray-500">Total Leads</div>
+            <div className="text-2xl font-bold">{totalLeads}</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-xs text-gray-500">New</div>
+            <div className="text-2xl font-bold">{newLeads}</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-xs text-gray-500">Auto-Replied</div>
+            <div className="text-2xl font-bold">{autoRepliedLeads}</div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="text-xs text-gray-500">Scheduled</div>
+            <div className="text-2xl font-bold">{scheduledLeads}</div>
+          </div>
+        </div>
 
         <div className="mb-4 flex items-center space-x-4">
-          <span className="font-medium">Mode:</span>
+          <span className="font-medium">Automation Mode:</span>
 
           <button
             onClick={() => setMode("manual")}
@@ -136,7 +194,7 @@ export default function Dashboard() {
               mode === "manual" ? "bg-blue-500 text-white" : "bg-gray-200"
             }`}
           >
-            Manual
+            Manual Review
           </button>
 
           <button
@@ -145,41 +203,48 @@ export default function Dashboard() {
               mode === "auto" ? "bg-green-500 text-white" : "bg-gray-200"
             }`}
           >
-            Auto
+            Auto Reply
           </button>
+
+          <span className="text-xs text-gray-500">
+            {mode === "auto"
+              ? "AI replies automatically to new leads."
+              : "Review AI replies before sending."}
+          </span>
         </div>
 
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Latest Customer Email</th>
-                <th className="px-6 py-3">Response</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Last Update</th>
-                <th className="px-6 py-3">Actions</th>
+                <th className="px-6 py-3 text-left">Name</th>
+                <th className="px-6 py-3 text-left">Email</th>
+                <th className="px-6 py-3 text-left">Latest Customer Email</th>
+                <th className="px-6 py-3 text-left">Latest AI Reply</th>
+                <th className="px-6 py-3 text-left">Status</th>
+                <th className="px-6 py-3 text-left">Last Update</th>
+                <th className="px-6 py-3 text-left">Actions</th>
               </tr>
             </thead>
 
             <tbody>
               {leads.map((lead) => (
                 <Fragment key={lead.id}>
-                  <tr className="border-b">
-                    <td className="px-6 py-4">{lead.name}</td>
+                  <tr className="border-b align-middle">
+                    <td className="px-6 py-4 font-medium">{lead.name}</td>
                     <td className="px-6 py-4">{lead.email}</td>
 
                     <td className="px-6 py-4 max-w-xs whitespace-pre-wrap">
-                      {lead.latest_customer_message ||
-                        lead.latest_message ||
-                        lead.summary ||
-                        "(no customer message yet)"}
+                      {previewMessage(
+                        lead.latest_customer_message ||
+                          lead.latest_message ||
+                          lead.summary,
+                      )}
                     </td>
 
                     <td className="px-6 py-4">
                       <textarea
-                        className="w-full border rounded p-2 text-sm"
+                        className="w-full min-h-28 border rounded p-2 text-sm"
                         value={
                           editedResponses[lead.id] ??
                           lead.latest_system_message ??
@@ -193,19 +258,36 @@ export default function Dashboard() {
                           }))
                         }
                       />
+                      {(lead.latest_system_message || lead.suggested_response) && (
+                        <div className="mt-1 text-xs text-blue-600">
+                          AI reply generated
+                        </div>
+                      )}
                     </td>
 
                     <td className="px-6 py-4">
-                      <select
-                        value={lead.status}
-                        onChange={(e) => updateStatus(lead.id, e.target.value)}
-                        className="border rounded px-2 py-1"
-                      >
-                        <option value="new">New</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="scheduled">Scheduled</option>
-                        <option value="closed">Closed</option>
-                      </select>
+                      <div className="space-y-2">
+                        <span
+                          className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${statusClass(
+                            lead.status,
+                          )}`}
+                        >
+                          {lead.status || "new"}
+                        </span>
+
+                        <select
+                          value={lead.status}
+                          onChange={(e) =>
+                            updateStatus(lead.id, e.target.value)
+                          }
+                          className="block border rounded px-2 py-1"
+                        >
+                          <option value="new">New</option>
+                          <option value="contacted">Contacted</option>
+                          <option value="scheduled">Scheduled</option>
+                          <option value="closed">Closed</option>
+                        </select>
+                      </div>
                     </td>
 
                     <td className="px-6 py-4 text-xs text-gray-500">
@@ -286,23 +368,28 @@ export default function Dashboard() {
                   {expandedId === lead.id && (
                     <tr className="bg-gray-50 border-b">
                       <td colSpan={7} className="px-6 py-4">
+                        <div className="mb-3 text-sm font-semibold text-gray-700">
+                          Email Conversation Thread
+                        </div>
+
                         <div className="space-y-3">
                           {(lead.messages || []).map((message: any) => (
                             <div
                               key={message.id}
-                              className={`rounded p-3 border ${
+                              className={`rounded-lg p-4 border max-w-4xl ${
                                 message.sender === "customer"
                                   ? "bg-white"
-                                  : "bg-blue-50"
+                                  : "bg-blue-50 ml-auto"
                               }`}
                             >
-                              <div className="text-xs font-semibold text-gray-500 mb-1">
+                              <div className="text-xs font-semibold text-gray-500 mb-2">
                                 {message.sender === "customer"
                                   ? "Customer"
-                                  : "System"}{" "}
+                                  : "AI Assistant"}{" "}
                                 · {formatDate(message.created_at)}
                               </div>
-                              <div className="whitespace-pre-wrap">
+
+                              <div className="whitespace-pre-wrap leading-relaxed">
                                 {message.content || "(empty message)"}
                               </div>
                             </div>
