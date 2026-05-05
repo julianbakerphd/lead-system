@@ -158,3 +158,40 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const { id } = await req.json();
+
+    if (!id || typeof id !== "string") {
+      return Response.json(
+        { success: false, error: "Missing document id." },
+        { status: 400 },
+      );
+    }
+
+    const { error } = await supabase
+      .from("rag_documents")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      return Response.json(
+        { success: false, error: error.message },
+        { status: 500 },
+      );
+    }
+
+    return Response.json({ success: true });
+  } catch (err: any) {
+    console.error("RAG document delete error:", err);
+
+    return Response.json(
+      {
+        success: false,
+        error: err?.message || "Delete failed.",
+      },
+      { status: 500 },
+    );
+  }
+}

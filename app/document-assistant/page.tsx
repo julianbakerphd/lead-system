@@ -38,6 +38,7 @@ export default function DocumentAssistantPage() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function fetchDocuments() {
     const res = await fetch("/api/rag/documents", {
@@ -96,6 +97,39 @@ export default function DocumentAssistantPage() {
       setError(err?.message || "Upload failed.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function deleteDocument(id: string) {
+    const confirmed = window.confirm(
+      "Delete this document and all of its indexed chunks?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setError(null);
+      setDeletingId(id);
+
+      const res = await fetch("/api/rag/documents", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Delete failed.");
+      }
+
+      setDocuments((prev) => prev.filter((document) => document.id !== id));
+    } catch (err: any) {
+      setError(err?.message || "Delete failed.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -198,7 +232,7 @@ export default function DocumentAssistantPage() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-600">
-                Paste text or upload a PDF, TXT, or Markdown file.
+                Paste text or upload a TXT or Markdown file.
               </p>
 
               <div className="mt-4 space-y-3">
@@ -272,6 +306,18 @@ export default function DocumentAssistantPage() {
                         {document.chunk_count} chunks
                       </span>
                     </div>
+
+                    <button
+                      onClick={() => deleteDocument(document.id)}
+                      disabled={deletingId === document.id}
+                      className={`mt-3 rounded-lg px-3 py-1 text-xs font-semibold text-white ${
+                        deletingId === document.id
+                          ? "bg-slate-400"
+                          : "bg-red-600 hover:bg-red-700"
+                      }`}
+                    >
+                      {deletingId === document.id ? "Deleting..." : "Delete"}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -294,8 +340,8 @@ export default function DocumentAssistantPage() {
               <div className="flex-1 space-y-4 overflow-y-auto p-5">
                 {messages.length === 0 && (
                   <div className="rounded-xl border border-dashed bg-slate-50 p-5 text-sm text-slate-500">
-                    Try asking: “What does the onboarding guide say new
-                    employees should do first?”
+                    Try asking: “What is the refund policy?” or “What does the
+                    warranty cover?”
                   </div>
                 )}
 
@@ -377,8 +423,10 @@ export default function DocumentAssistantPage() {
                 </div>
 
                 <p className="mt-2 text-xs text-slate-500">
-                  This assistant is for internal document search. Answers should
-                  be verified against the original sources.
+                  This assistant is for internal document search only. It may be
+                  incomplete or inaccurate. Verify answers against the original
+                  sources. Do not use it for legal, medical, financial, HR,
+                  compliance, or business-critical decisions.
                 </p>
               </div>
             </div>
