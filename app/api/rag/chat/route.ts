@@ -179,9 +179,8 @@ Answer:
     });
 
     const answer = (response.output_text || "").trim();
-
     const citedSourceNumbers = Array.from(
-      answer.matchAll(/\[Source\s+(\d+)\]/gi),
+      answer.matchAll(/Source\s+(\d+)/gi),
     ).map((match) => Number(match[1]));
 
     const citedSet = new Set(citedSourceNumbers);
