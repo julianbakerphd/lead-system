@@ -212,7 +212,7 @@ export default function DocumentAssistantPage() {
                 <input
                   id="rag-file-input"
                   type="file"
-                  accept=".txt,.md,.pdf,text/plain,text/markdown,application/pdf"
+                  accept=".txt,.md,text/plain,text/markdown"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                   className="w-full rounded-lg border bg-white px-3 py-2 text-sm"
                 />

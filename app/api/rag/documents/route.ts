@@ -43,8 +43,7 @@ export async function POST(req: Request) {
       fileName = file.name;
       fileType = file.type || "unknown";
 
-      const buffer = Buffer.from(await file.arrayBuffer());
-      rawText = await extractTextFromFile(file.name, file.type || "", buffer);
+      rawText = await extractTextFromFile(file);
       sourceType = "file_upload";
     }
 

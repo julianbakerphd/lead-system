@@ -1,26 +1,16 @@
-export async function extractTextFromFile(
-  fileName: string,
-  mimeType: string,
-  buffer: Buffer,
-) {
-  const lowerName = fileName.toLowerCase();
+export async function extractTextFromFile(file: File) {
+  const fileName = file.name.toLowerCase();
+  const mimeType = file.type || "";
 
-  if (
+  const isTextFile =
     mimeType.includes("text/plain") ||
     mimeType.includes("text/markdown") ||
-    lowerName.endsWith(".txt") ||
-    lowerName.endsWith(".md")
-  ) {
-    return buffer.toString("utf8");
+    fileName.endsWith(".txt") ||
+    fileName.endsWith(".md");
+
+  if (!isTextFile) {
+    throw new Error("Only .txt and .md files are supported for now.");
   }
 
-  if (mimeType.includes("pdf") || lowerName.endsWith(".pdf")) {
-    const pdfParseModule: any = await import("pdf-parse");
-    const pdfParse = pdfParseModule.default || pdfParseModule;
-
-    const parsed = await pdfParse(buffer);
-    return parsed.text || "";
-  }
-
-  throw new Error("Unsupported file type. Use .txt, .md, or .pdf for now.");
+  return await file.text();
 }
