@@ -7,9 +7,214 @@ const resend = new Resend(process.env.RESEND_API_KEY!);
 
 function stripHtml(html: string) {
   return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function parseEmailAddress(input: any): string {
+  let raw = "";
+
+  if (typeof input === "string") {
+    raw = input;
+  } else if (input && typeof input === "object") {
+    raw = input.email || input.address || input.text || "";
+  }
+
+  const emailMatch = raw.match(/<(.+?)>/);
+  return (emailMatch ? emailMatch[1] : raw).trim().toLowerCase();
+}
+
+function getHeader(headers: any, name: string): string {
+  if (!headers) return "";
+
+  const target = name.toLowerCase();
+
+  if (Array.isArray(headers)) {
+    const found = headers.find((h) => {
+      const key = h?.name || h?.key;
+      return typeof key === "string" && key.toLowerCase() === target;
+    });
+
+    return found?.value || "";
+  }
+
+  if (typeof headers === "object") {
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === target);
+    return key ? headers[key] : "";
+  }
+
+  return "";
+}
+
+function decodeQuotedPrintable(input: string) {
+  return input
+    .replace(/=\r?\n/g, "")
+    .replace(/=([A-Fa-f0-9]{2})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    );
+}
+
+function decodeBody(body: string, encoding: string) {
+  const cleanEncoding = encoding.toLowerCase();
+
+  if (cleanEncoding.includes("quoted-printable")) {
+    return decodeQuotedPrintable(body);
+  }
+
+  if (cleanEncoding.includes("base64")) {
+    try {
+      return Buffer.from(body.replace(/\s/g, ""), "base64").toString("utf8");
+    } catch {
+      return body;
+    }
+  }
+
+  return body;
+}
+
+function extractRawHeader(headerText: string, name: string) {
+  const lines = headerText.split(/\r?\n/);
+  const unfolded: string[] = [];
+
+  for (const line of lines) {
+    if (/^\s/.test(line) && unfolded.length > 0) {
+      unfolded[unfolded.length - 1] += " " + line.trim();
+    } else {
+      unfolded.push(line);
+    }
+  }
+
+  const target = name.toLowerCase() + ":";
+
+  const found = unfolded.find((line) => line.toLowerCase().startsWith(target));
+
+  return found ? found.slice(target.length).trim() : "";
+}
+
+function extractMimeBody(raw: string): string {
+  const splitIndex = raw.search(/\r?\n\r?\n/);
+
+  if (splitIndex === -1) return raw.trim();
+
+  const headerText = raw.slice(0, splitIndex);
+  const bodyText = raw.slice(splitIndex).replace(/^\r?\n\r?\n?/, "");
+
+  const contentType = extractRawHeader(headerText, "Content-Type");
+  const encoding = extractRawHeader(headerText, "Content-Transfer-Encoding");
+
+  const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
+  const boundary = boundaryMatch?.[1];
+
+  if (boundary) {
+    const parts = bodyText
+      .split(`--${boundary}`)
+      .map((part) => part.trim())
+      .filter((part) => part && part !== "--");
+
+    let htmlBody = "";
+
+    for (const part of parts) {
+      const partSplitIndex = part.search(/\r?\n\r?\n/);
+      if (partSplitIndex === -1) continue;
+
+      const partHeaders = part.slice(0, partSplitIndex);
+      const partBody = part.slice(partSplitIndex).replace(/^\r?\n\r?\n?/, "");
+
+      const partContentType = extractRawHeader(partHeaders, "Content-Type");
+      const partEncoding = extractRawHeader(
+        partHeaders,
+        "Content-Transfer-Encoding",
+      );
+
+      if (partContentType.toLowerCase().includes("multipart/")) {
+        const nested = extractMimeBody(part);
+        if (nested) return nested;
+      }
+
+      const decoded = decodeBody(partBody, partEncoding).trim();
+
+      if (partContentType.toLowerCase().includes("text/plain") && decoded) {
+        return decoded;
+      }
+
+      if (partContentType.toLowerCase().includes("text/html") && decoded) {
+        htmlBody = stripHtml(decoded);
+      }
+    }
+
+    return htmlBody;
+  }
+
+  const decoded = decodeBody(bodyText, encoding).trim();
+
+  if (contentType.toLowerCase().includes("text/html")) {
+    return stripHtml(decoded);
+  }
+
+  return decoded;
+}
+
+function findEmailBody(value: any): string {
+  if (!value || typeof value !== "object") return "";
+
+  const textKeys = [
+    "text",
+    "text_body",
+    "plain_text",
+    "body_text",
+    "bodyText",
+    "plain",
+  ];
+
+  for (const key of textKeys) {
+    if (typeof value[key] === "string" && value[key].trim()) {
+      return value[key].trim();
+    }
+  }
+
+  const htmlKeys = ["html", "html_body", "body_html", "htmlBody"];
+
+  for (const key of htmlKeys) {
+    if (typeof value[key] === "string" && value[key].trim()) {
+      return stripHtml(value[key]);
+    }
+  }
+
+  for (const key of Object.keys(value)) {
+    if (key.toLowerCase().includes("subject")) continue;
+    if (key.toLowerCase().includes("headers")) continue;
+
+    const nested = value[key];
+
+    if (nested && typeof nested === "object") {
+      const found = findEmailBody(nested);
+      if (found) return found;
+    }
+  }
+
+  return "";
+}
+
+function getObjectKeysDeep(value: any, prefix = ""): string[] {
+  if (!value || typeof value !== "object") return [];
+
+  return Object.keys(value).flatMap((key) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const nested = value[key];
+
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      return [path, ...getObjectKeysDeep(nested, path)];
+    }
+
+    return [path];
+  });
 }
 
 export async function POST(req: Request) {
@@ -20,30 +225,25 @@ export async function POST(req: Request) {
 
     const data = body?.data || {};
 
-    // email parsing
-    let rawEmail = data?.from?.email || data?.from || body?.email || "";
+    const email = parseEmailAddress(data?.from || body?.email);
 
-    const emailMatch = rawEmail.match(/<(.+?)>/);
-    const email = (emailMatch ? emailMatch[1] : rawEmail).trim().toLowerCase();
-
-    // subject / threading info
     let subject = data?.subject || "Your inquiry";
+
     let incomingMessageId =
       data?.message_id ||
       data?.messageId ||
-      data?.headers?.["message-id"] ||
-      data?.headers?.["Message-ID"] ||
+      getHeader(data?.headers, "Message-ID") ||
       "";
 
     let referencesHeader =
       data?.references ||
-      data?.headers?.references ||
-      data?.headers?.References ||
+      getHeader(data?.headers, "References") ||
       incomingMessageId ||
       "";
 
-    // Fetch full received email body from Resend
     let message = "";
+    let htmlContent = "";
+    let receivedEmailForStorage: any = null;
 
     const emailId = data?.email_id || data?.id;
 
@@ -53,6 +253,16 @@ export async function POST(req: Request) {
 
       if (receivedEmailError) {
         console.error("Failed to fetch received email:", receivedEmailError);
+
+        return Response.json(
+          {
+            success: false,
+            error:
+              receivedEmailError.message ||
+              "Failed to fetch received email body",
+          },
+          { status: 500 },
+        );
       }
 
       console.log(
@@ -60,8 +270,9 @@ export async function POST(req: Request) {
         JSON.stringify(receivedEmail, null, 2),
       );
 
+      receivedEmailForStorage = receivedEmail;
+
       const received: any = receivedEmail;
-      const receivedBody = received?.body || {};
       const receivedHeaders = received?.headers || {};
 
       subject = received?.subject || subject;
@@ -69,42 +280,69 @@ export async function POST(req: Request) {
       incomingMessageId =
         received?.message_id ||
         received?.messageId ||
-        receivedHeaders?.["message-id"] ||
-        receivedHeaders?.["Message-ID"] ||
+        getHeader(receivedHeaders, "Message-ID") ||
         incomingMessageId;
 
       referencesHeader =
         received?.references ||
-        receivedHeaders?.references ||
-        receivedHeaders?.References ||
+        getHeader(receivedHeaders, "References") ||
         referencesHeader ||
         incomingMessageId;
 
-      message =
-        received?.text ||
-        received?.text_body ||
-        received?.plain_text ||
-        received?.body_text ||
-        receivedBody?.text ||
-        receivedBody?.plain ||
-        receivedBody?.plain_text ||
-        (received?.html ? stripHtml(received.html) : "") ||
-        (received?.html_body ? stripHtml(received.html_body) : "") ||
-        (receivedBody?.html ? stripHtml(receivedBody.html) : "") ||
+      htmlContent =
+        received?.html || received?.html_body || received?.body?.html || "";
+
+      message = findEmailBody(received);
+
+      const rawUrl =
+        received?.raw?.download_url ||
+        received?.raw?.downloadUrl ||
+        received?.raw?.url ||
+        received?.raw_download_url ||
+        received?.download_url ||
         "";
+
+      if (!message && rawUrl) {
+        console.log("Fetching raw email from:", rawUrl);
+
+        let rawResponse = await fetch(rawUrl);
+
+        if (!rawResponse.ok) {
+          rawResponse = await fetch(rawUrl, {
+            headers: {
+              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            },
+          });
+        }
+
+        if (rawResponse.ok) {
+          const rawEmail = await rawResponse.text();
+          message = extractMimeBody(rawEmail);
+        } else {
+          console.error("Failed to fetch raw email:", rawResponse.status);
+        }
+      }
+
+      if (!message) {
+        console.log(
+          "NO BODY FOUND. RECEIVED EMAIL KEYS:",
+          getObjectKeysDeep(received),
+        );
+      }
     } else {
-      // fallback for Postman/manual tests
       message =
         data?.text ||
         data?.snippet ||
         body?.message ||
         (data?.html ? stripHtml(data.html) : "");
+
+      htmlContent = data?.html || "";
     }
 
     message = message.trim();
 
     if (!email || !message) {
-      console.log("⚠️ Missing parsed fields:", {
+      console.log("Missing parsed fields:", {
         email,
         message,
         emailId,
@@ -121,7 +359,11 @@ export async function POST(req: Request) {
     console.log("Parsed subject:", subject);
     console.log("Parsed message:", message);
 
-    // STEP 1 — find existing lead
+    const referencesForReply = [referencesHeader, incomingMessageId]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
     const { data: lead } = await supabase
       .from("leads")
       .select("*")
@@ -132,7 +374,6 @@ export async function POST(req: Request) {
 
     let currentLead = lead;
 
-    // STEP 2 — create lead if not exists
     if (!currentLead) {
       console.log("Creating new lead for:", email);
 
@@ -144,6 +385,11 @@ export async function POST(req: Request) {
             email: email,
             summary: message.substring(0, 120),
             status: "new",
+            last_customer_message: message,
+            last_subject: subject,
+            last_message_at: new Date().toISOString(),
+            last_message_id: incomingMessageId,
+            references_header: referencesForReply,
           },
         ])
         .select()
@@ -163,7 +409,6 @@ export async function POST(req: Request) {
 
     console.log("Lead ID:", currentLead.id);
 
-    // 1. store customer message
     const { error: insertCustomerError } = await supabase
       .from("messages")
       .insert([
@@ -171,6 +416,15 @@ export async function POST(req: Request) {
           lead_id: currentLead.id,
           sender: "customer",
           content: message,
+          subject,
+          resend_email_id: emailId,
+          message_id: incomingMessageId,
+          references_header: referencesForReply,
+          html_content: htmlContent || null,
+          raw_payload: {
+            webhook: body,
+            received_email: receivedEmailForStorage,
+          },
         },
       ]);
 
@@ -186,40 +440,56 @@ export async function POST(req: Request) {
       );
     }
 
-    // update lead for dashboard
     await supabase
       .from("leads")
       .update({
         summary: message.substring(0, 120),
+        last_customer_message: message,
+        last_subject: subject,
+        last_message_at: new Date().toISOString(),
+        last_message_id: incomingMessageId,
+        references_header: referencesForReply,
         updated_at: new Date().toISOString(),
       })
       .eq("id", currentLead.id);
 
-    // detect scheduling
     const scheduling = await detectScheduling(message);
 
     console.log("Scheduling detection:", scheduling);
 
     if (scheduling.is_scheduling) {
+      const confirmation = `Great — we have you scheduled for ${scheduling.time || ""} ${scheduling.date || ""}. We'll follow up shortly.`;
+
       await supabase
         .from("leads")
         .update({
           status: "scheduled",
+          conversation_stage: "scheduled",
           scheduled_date: scheduling.date,
           scheduled_time: scheduling.time,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", currentLead.id);
 
-      await sendEmail(
-        email,
-        `Re: ${subject}`,
-        `Great — we have you scheduled for ${scheduling.time || ""} ${scheduling.date || ""}. We'll follow up shortly.`,
+      const sent = await sendEmail(email, `Re: ${subject}`, confirmation, {
+        inReplyTo: incomingMessageId,
+        references: referencesForReply,
+        quotedText: message,
+      });
+
+      const sentData: any = (sent as any)?.data || sent;
+
+      await supabase.from("messages").insert([
         {
-          inReplyTo: incomingMessageId,
-          references: referencesHeader,
-          quotedText: message,
+          lead_id: currentLead.id,
+          sender: "system",
+          content: confirmation,
+          subject: `Re: ${subject}`,
+          resend_email_id: sentData?.id || null,
+          in_reply_to: incomingMessageId,
+          references_header: referencesForReply,
         },
-      );
+      ]);
 
       console.log("Lead scheduled — stopping AI loop");
 
@@ -228,8 +498,6 @@ export async function POST(req: Request) {
         scheduled: true,
       });
     }
-
-    // EXISTING FLOW
 
     const { data: history } = await supabase
       .from("messages")
@@ -242,12 +510,15 @@ export async function POST(req: Request) {
       content: m.content,
     }));
 
-    conversation.push({
-      role: "user",
-      content: message,
+    const reply = await generateResponse(conversation);
+
+    const sent = await sendEmail(email, `Re: ${subject}`, reply, {
+      inReplyTo: incomingMessageId,
+      references: referencesForReply,
+      quotedText: message,
     });
 
-    const reply = await generateResponse(conversation);
+    const sentData: any = (sent as any)?.data || sent;
 
     const { error: insertSystemError } = await supabase
       .from("messages")
@@ -256,6 +527,10 @@ export async function POST(req: Request) {
           lead_id: currentLead.id,
           sender: "system",
           content: reply,
+          subject: `Re: ${subject}`,
+          resend_email_id: sentData?.id || null,
+          in_reply_to: incomingMessageId,
+          references_header: referencesForReply,
         },
       ]);
 
@@ -263,11 +538,13 @@ export async function POST(req: Request) {
       console.error("System insert error:", insertSystemError);
     }
 
-    await sendEmail(email, `Re: ${subject}`, reply, {
-      inReplyTo: incomingMessageId,
-      references: referencesHeader,
-      quotedText: message,
-    });
+    await supabase
+      .from("leads")
+      .update({
+        suggested_response: reply,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", currentLead.id);
 
     console.log("Reply sent to:", email);
 

@@ -6,7 +6,10 @@ export async function POST(req: Request) {
 
     const { error } = await supabase
       .from("leads")
-      .update({ suggested_response: response })
+      .update({
+        suggested_response: response,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id);
 
     if (error) {

@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 export default function Dashboard() {
   const [leads, setLeads] = useState<any[]>([]);
-  const [sendingId, setSendingId] = useState<number | null>(null);
-  const [sentId, setSentId] = useState<number | null>(null);
-  const [savingId, setSavingId] = useState<number | null>(null);
-  const [savedId, setSavedId] = useState<number | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sentId, setSentId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [editedResponses, setEditedResponses] = useState<{
-    [key: number]: string;
+    [key: string]: string;
   }>({});
 
   const [mode, setMode] = useState<"manual" | "auto">("manual");
@@ -35,7 +36,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  async function updateStatus(id: number, status: string) {
+  async function updateStatus(id: string, status: string) {
     await fetch("/api/update-status", {
       method: "POST",
       headers: {
@@ -49,7 +50,7 @@ export default function Dashboard() {
     );
   }
 
-  async function saveResponse(id: number, response: string) {
+  async function saveResponse(id: string, response: string) {
     try {
       setSavingId(id);
 
@@ -77,7 +78,7 @@ export default function Dashboard() {
     }
   }
 
-  async function resendEmail(id: number, email: string, response: string) {
+  async function resendEmail(id: string, email: string, response: string) {
     try {
       setSendingId(id);
 
@@ -87,6 +88,7 @@ export default function Dashboard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          id,
           email,
           response,
         }),
@@ -114,6 +116,11 @@ export default function Dashboard() {
       }
     });
   }, [leads, mode]);
+
+  function formatDate(value: string | null | undefined) {
+    if (!value) return "";
+    return new Date(value).toLocaleString();
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -148,7 +155,7 @@ export default function Dashboard() {
               <tr>
                 <th className="px-6 py-3">Name</th>
                 <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Summary</th>
+                <th className="px-6 py-3">Latest Customer Email</th>
                 <th className="px-6 py-3">Response</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3">Last Update</th>
@@ -158,98 +165,159 @@ export default function Dashboard() {
 
             <tbody>
               {leads.map((lead) => (
-                <tr key={lead.id} className="border-b">
-                  <td className="px-6 py-4">{lead.name}</td>
-                  <td className="px-6 py-4">{lead.email}</td>
+                <Fragment key={lead.id}>
+                  <tr className="border-b">
+                    <td className="px-6 py-4">{lead.name}</td>
+                    <td className="px-6 py-4">{lead.email}</td>
 
-                  {/* 🔥 FIX — show latest message if available */}
-                  <td className="px-6 py-4">
-                    {lead.latest_message || lead.summary}
-                  </td>
+                    <td className="px-6 py-4 max-w-xs whitespace-pre-wrap">
+                      {lead.latest_customer_message ||
+                        lead.latest_message ||
+                        lead.summary ||
+                        "(no customer message yet)"}
+                    </td>
 
-                  <td className="px-6 py-4">
-                    <textarea
-                      className="w-full border rounded p-2 text-sm"
-                      value={
-                        editedResponses[lead.id] ?? lead.suggested_response
-                      }
-                      onChange={(e) =>
-                        setEditedResponses((prev) => ({
-                          ...prev,
-                          [lead.id]: e.target.value,
-                        }))
-                      }
-                    />
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <select
-                      value={lead.status}
-                      onChange={(e) => updateStatus(lead.id, e.target.value)}
-                      className="border rounded px-2 py-1"
-                    >
-                      <option value="new">New</option>
-                      <option value="contacted">Contacted</option>
-                      <option value="scheduled">Scheduled</option>
-                      <option value="closed">Closed</option>
-                    </select>
-                  </td>
-
-                  <td className="px-6 py-4 text-xs text-gray-500">
-                    {lead.created_at}
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col space-y-2">
-                      <button
-                        onClick={() =>
-                          saveResponse(
-                            lead.id,
-                            editedResponses[lead.id] ?? lead.suggested_response,
-                          )
+                    <td className="px-6 py-4">
+                      <textarea
+                        className="w-full border rounded p-2 text-sm"
+                        value={
+                          editedResponses[lead.id] ??
+                          lead.latest_system_message ??
+                          lead.suggested_response ??
+                          ""
                         }
-                        disabled={savingId === lead.id}
-                        className={`px-3 py-1 rounded text-white ${
-                          savingId === lead.id
-                            ? "bg-gray-400"
+                        onChange={(e) =>
+                          setEditedResponses((prev) => ({
+                            ...prev,
+                            [lead.id]: e.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <select
+                        value={lead.status}
+                        onChange={(e) => updateStatus(lead.id, e.target.value)}
+                        className="border rounded px-2 py-1"
+                      >
+                        <option value="new">New</option>
+                        <option value="contacted">Contacted</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    </td>
+
+                    <td className="px-6 py-4 text-xs text-gray-500">
+                      {formatDate(lead.last_message_at || lead.created_at)}
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col space-y-2">
+                        <button
+                          onClick={() =>
+                            saveResponse(
+                              lead.id,
+                              editedResponses[lead.id] ??
+                                lead.latest_system_message ??
+                                lead.suggested_response ??
+                                "",
+                            )
+                          }
+                          disabled={savingId === lead.id}
+                          className={`px-3 py-1 rounded text-white ${
+                            savingId === lead.id
+                              ? "bg-gray-400"
+                              : savedId === lead.id
+                                ? "bg-green-500"
+                                : "bg-gray-600 hover:bg-gray-700"
+                          }`}
+                        >
+                          {savingId === lead.id
+                            ? "Saving..."
                             : savedId === lead.id
-                              ? "bg-green-500"
-                              : "bg-gray-600 hover:bg-gray-700"
-                        }`}
-                      >
-                        {savingId === lead.id
-                          ? "Saving..."
-                          : savedId === lead.id
-                            ? "Saved ✓"
-                            : "Save"}
-                      </button>
+                              ? "Saved ✓"
+                              : "Save"}
+                        </button>
 
-                      <button
-                        onClick={() =>
-                          resendEmail(
-                            lead.id,
-                            lead.email,
-                            editedResponses[lead.id] ?? lead.suggested_response,
-                          )
-                        }
-                        disabled={sendingId === lead.id || mode === "auto"}
-                        className={`px-3 py-1 rounded text-white ${
-                          sendingId === lead.id
-                            ? "bg-gray-400"
+                        <button
+                          onClick={() =>
+                            resendEmail(
+                              lead.id,
+                              lead.email,
+                              editedResponses[lead.id] ??
+                                lead.latest_system_message ??
+                                lead.suggested_response ??
+                                "",
+                            )
+                          }
+                          disabled={sendingId === lead.id || mode === "auto"}
+                          className={`px-3 py-1 rounded text-white ${
+                            sendingId === lead.id
+                              ? "bg-gray-400"
+                              : sentId === lead.id
+                                ? "bg-green-500"
+                                : "bg-blue-500 hover:bg-blue-600"
+                          }`}
+                        >
+                          {sendingId === lead.id
+                            ? "Sending..."
                             : sentId === lead.id
-                              ? "bg-green-500"
-                              : "bg-blue-500 hover:bg-blue-600"
-                        }`}
-                      >
-                        {sendingId === lead.id
-                          ? "Sending..."
-                          : sentId === lead.id
-                            ? "Sent ✓"
-                            : "Send"}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                              ? "Sent ✓"
+                              : "Send"}
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            setExpandedId(
+                              expandedId === lead.id ? null : lead.id,
+                            )
+                          }
+                          className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300"
+                        >
+                          {expandedId === lead.id
+                            ? "Hide Thread"
+                            : "View Thread"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {expandedId === lead.id && (
+                    <tr className="bg-gray-50 border-b">
+                      <td colSpan={7} className="px-6 py-4">
+                        <div className="space-y-3">
+                          {(lead.messages || []).map((message: any) => (
+                            <div
+                              key={message.id}
+                              className={`rounded p-3 border ${
+                                message.sender === "customer"
+                                  ? "bg-white"
+                                  : "bg-blue-50"
+                              }`}
+                            >
+                              <div className="text-xs font-semibold text-gray-500 mb-1">
+                                {message.sender === "customer"
+                                  ? "Customer"
+                                  : "System"}{" "}
+                                · {formatDate(message.created_at)}
+                              </div>
+                              <div className="whitespace-pre-wrap">
+                                {message.content || "(empty message)"}
+                              </div>
+                            </div>
+                          ))}
+
+                          {(!lead.messages || lead.messages.length === 0) && (
+                            <div className="text-gray-500">
+                              No messages yet.
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

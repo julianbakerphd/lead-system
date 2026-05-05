@@ -18,11 +18,8 @@ async function logStep(
   ]);
 }
 
-//
-// ✅ GET handler (unchanged)
-//
 export async function GET() {
-  const { data, error } = await supabase
+  const { data: leads, error } = await supabase
     .from("leads")
     .select("*")
     .order("created_at", { ascending: false });
@@ -31,12 +28,59 @@ export async function GET() {
     return Response.json({ success: false, error: error.message });
   }
 
+  const leadIds = (leads || []).map((lead) => lead.id);
+
+  let messages: any[] = [];
+
+  if (leadIds.length > 0) {
+    const { data: messageData, error: messagesError } = await supabase
+      .from("messages")
+      .select("*")
+      .in("lead_id", leadIds)
+      .order("created_at", { ascending: true });
+
+    if (messagesError) {
+      return Response.json({
+        success: false,
+        error: messagesError.message,
+      });
+    }
+
+    messages = messageData || [];
+  }
+
+  const data = (leads || []).map((lead) => {
+    const leadMessages = messages.filter((msg) => msg.lead_id === lead.id);
+
+    const latestMessage = leadMessages[leadMessages.length - 1];
+
+    const latestCustomerMessage = [...leadMessages]
+      .reverse()
+      .find((msg) => msg.sender === "customer");
+
+    const latestSystemMessage = [...leadMessages]
+      .reverse()
+      .find((msg) => msg.sender === "system");
+
+    return {
+      ...lead,
+      messages: leadMessages,
+      latest_message:
+        latestCustomerMessage?.content ||
+        latestMessage?.content ||
+        lead.summary,
+      latest_customer_message: latestCustomerMessage?.content || "",
+      latest_system_message: latestSystemMessage?.content || "",
+      suggested_response:
+        latestSystemMessage?.content || lead.suggested_response,
+      last_message_at:
+        latestMessage?.created_at || lead.updated_at || lead.created_at,
+    };
+  });
+
   return Response.json({ success: true, data });
 }
 
-//
-// ✅ POST handler (MINIMAL UPDATE)
-//
 export async function POST(req: Request) {
   const request_id = crypto.randomUUID();
 
@@ -161,11 +205,15 @@ export async function POST(req: Request) {
 
     await logStep(request_id, "inserted", data);
 
-    // ✅ NEW — store initial system message (MINIMAL ADDITION)
     const lead = data?.[0];
 
     if (lead) {
       await supabase.from("messages").insert([
+        {
+          lead_id: lead.id,
+          sender: "customer",
+          content: message,
+        },
         {
           lead_id: lead.id,
           sender: "system",
