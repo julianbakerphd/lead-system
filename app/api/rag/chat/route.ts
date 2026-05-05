@@ -8,6 +8,72 @@ const client = new OpenAI({
 
 export const runtime = "nodejs";
 
+function isRiskyQuestion(question: string) {
+  const q = question.toLowerCase();
+
+  const riskyPatterns = [
+    // Legal / compliance / regulatory
+    /\blegal\b/,
+    /\blawyer\b/,
+    /\battorney\b/,
+    /\blawsuit\b/,
+    /\bsue\b/,
+    /\bsued\b/,
+    /\bliability\b/,
+    /\bregulation\b/,
+    /\bregulatory\b/,
+    /\bcompliance\b/,
+    /\blegally required\b/,
+    /\bcontract\b/,
+    /\bterms and conditions\b/,
+
+    // Medical / health
+    /\bmedical\b/,
+    /\bdoctor\b/,
+    /\bdiagnose\b/,
+    /\btreatment\b/,
+    /\bmedicine\b/,
+    /\bpatient\b/,
+    /\btherapy\b/,
+    /\btherapist\b/,
+    /\bmental health\b/,
+
+    // HR / employment decisions
+    /\bfire\b/,
+    /\bfiring\b/,
+    /\bterminate employee\b/,
+    /\bhiring decision\b/,
+    /\bpromotion\b/,
+    /\bdiscipline employee\b/,
+    /\bdiscrimination\b/,
+    /\bharassment\b/,
+    /\bprotected class\b/,
+    /\bemployee complaint\b/,
+
+    // Financial / tax / accounting / insurance
+    /\btax advice\b/,
+    /\baccounting advice\b/,
+    /\binvestment\b/,
+    /\binsurance claim\b/,
+    /\bfinancial advice\b/,
+
+    // Autonomous decisions/actions
+    /\bmake the decision\b/,
+    /\bdecide for us\b/,
+    /\bsend the email for me\b/,
+    /\bapprove this\b/,
+    /\breject this\b/,
+    /\bissue a refund\b/,
+    /\bdeny a claim\b/,
+  ];
+
+  return riskyPatterns.some((pattern) => pattern.test(q));
+}
+
+function riskyQuestionFallback() {
+  return "I cannot answer that type of question. This assistant is only for internal document search and source-backed summaries. It does not provide legal, medical, financial, HR, compliance, tax, accounting, insurance, or decision-making advice. Please consult the appropriate qualified person and verify the original source documents.";
+}
+
 export async function POST(req: Request) {
   try {
     const { question } = await req.json();
@@ -17,6 +83,24 @@ export async function POST(req: Request) {
         { success: false, error: "Missing question." },
         { status: 400 },
       );
+    }
+
+    if (isRiskyQuestion(question)) {
+      const answer = riskyQuestionFallback();
+
+      await supabase.from("rag_chat_messages").insert([
+        {
+          question,
+          answer,
+          sources: [],
+        },
+      ]);
+
+      return Response.json({
+        success: true,
+        answer,
+        sources: [],
+      });
     }
 
     const questionEmbedding = await embedText(question);
@@ -69,7 +153,7 @@ ${chunk.content}`;
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: `
-You are a private internal document assistant for a business.
+You are a private internal document search assistant for a business.
 
 Rules:
 - Answer only using the provided sources.
@@ -77,9 +161,12 @@ Rules:
 - If the sources do not contain the answer, say you could not find enough information.
 - Be concise, professional, and clear.
 - Include source references like [Source 1] and [Source 2] inside the answer.
-- Do not provide legal, medical, financial, HR, or compliance advice.
+- Do not provide legal, medical, financial, HR, compliance, tax, accounting, insurance, or employment advice.
+- Do not answer questions about hiring, firing, discipline, harassment, discrimination, employee disputes, legal obligations, regulations, lawsuits, medical issues, taxes, investments, insurance claims, or compliance decisions.
 - Do not make decisions for the company.
+- Do not tell the user what they should do in a professional, legal, regulated, financial, medical, HR, or compliance sense.
 - Present yourself as a document search assistant, not an authority.
+- If the user asks for advice outside internal document search, refuse briefly and tell them to consult a qualified person.
 
 User question:
 ${question}
