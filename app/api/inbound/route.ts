@@ -1,5 +1,9 @@
 import supabase from "@/lib/supabase";
-import { generateResponse, detectScheduling } from "@/lib/ai";
+import {
+  generateResponse,
+  detectScheduling,
+  extractContactInfo,
+} from "@/lib/ai";
 import { sendEmail } from "@/lib/email";
 import { Resend } from "resend";
 
@@ -409,6 +413,38 @@ export async function POST(req: Request) {
 
     console.log("Lead ID:", currentLead.id);
 
+    const contactInfo = await extractContactInfo(message);
+
+    console.log("Contact info extraction:", contactInfo);
+
+    const contactUpdates: any = {};
+
+    if (contactInfo?.phone) {
+      contactUpdates.phone = contactInfo.phone;
+    }
+
+    if (
+      contactInfo?.name &&
+      (!currentLead.name || currentLead.name === email.split("@")[0])
+    ) {
+      contactUpdates.name = contactInfo.name;
+    }
+
+    if (Object.keys(contactUpdates).length > 0) {
+      await supabase
+        .from("leads")
+        .update({
+          ...contactUpdates,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", currentLead.id);
+
+      currentLead = {
+        ...currentLead,
+        ...contactUpdates,
+      };
+    }
+
     const { error: insertCustomerError } = await supabase
       .from("messages")
       .insert([
@@ -453,12 +489,103 @@ export async function POST(req: Request) {
       })
       .eq("id", currentLead.id);
 
+    if (
+      currentLead.conversation_stage === "collecting_contact_info" &&
+      (currentLead.phone || contactInfo?.phone) &&
+      (currentLead.scheduled_date || currentLead.scheduled_time)
+    ) {
+      const confirmation = `Perfect — we have you scheduled for ${
+        currentLead.scheduled_time || ""
+      } ${currentLead.scheduled_date || ""}. We'll follow up shortly.`;
+
+      await supabase
+        .from("leads")
+        .update({
+          status: "scheduled",
+          conversation_stage: "scheduled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", currentLead.id);
+
+      const sent = await sendEmail(email, `Re: ${subject}`, confirmation, {
+        inReplyTo: incomingMessageId,
+        references: referencesForReply,
+        quotedText: message,
+      });
+
+      const sentData: any = (sent as any)?.data || sent;
+
+      await supabase.from("messages").insert([
+        {
+          lead_id: currentLead.id,
+          sender: "system",
+          content: confirmation,
+          subject: `Re: ${subject}`,
+          resend_email_id: sentData?.id || null,
+          in_reply_to: incomingMessageId,
+          references_header: referencesForReply,
+        },
+      ]);
+
+      return Response.json({
+        success: true,
+        scheduled: true,
+        contact_info_received: true,
+      });
+    }
+
     const scheduling = await detectScheduling(message);
 
     console.log("Scheduling detection:", scheduling);
 
     if (scheduling.is_scheduling) {
-      const confirmation = `Great — we have you scheduled for ${scheduling.time || ""} ${scheduling.date || ""}. We'll follow up shortly.`;
+      const hasPhone = Boolean(currentLead.phone || contactInfo?.phone);
+
+      if (!hasPhone) {
+        const askForContact =
+          "That time should work. Before I confirm the appointment, what is the best phone number to reach you?";
+
+        await supabase
+          .from("leads")
+          .update({
+            status: "contacted",
+            conversation_stage: "collecting_contact_info",
+            scheduled_date: scheduling.date,
+            scheduled_time: scheduling.time,
+            suggested_response: askForContact,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", currentLead.id);
+
+        const sent = await sendEmail(email, `Re: ${subject}`, askForContact, {
+          inReplyTo: incomingMessageId,
+          references: referencesForReply,
+          quotedText: message,
+        });
+
+        const sentData: any = (sent as any)?.data || sent;
+
+        await supabase.from("messages").insert([
+          {
+            lead_id: currentLead.id,
+            sender: "system",
+            content: askForContact,
+            subject: `Re: ${subject}`,
+            resend_email_id: sentData?.id || null,
+            in_reply_to: incomingMessageId,
+            references_header: referencesForReply,
+          },
+        ]);
+
+        return Response.json({
+          success: true,
+          needs_contact_info: true,
+        });
+      }
+
+      const confirmation = `Great — we have you scheduled for ${
+        scheduling.time || ""
+      } ${scheduling.date || ""}. We'll follow up shortly.`;
 
       await supabase
         .from("leads")
