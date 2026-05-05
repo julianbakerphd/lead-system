@@ -35,6 +35,18 @@ function parseEmailAddress(input: any): string {
   return (emailMatch ? emailMatch[1] : raw).trim().toLowerCase();
 }
 
+function isPlaceholderName(name: string | null | undefined, email: string) {
+  if (!name) return true;
+
+  const emailUser = email.split("@")[0]?.toLowerCase();
+
+  return (
+    name.toLowerCase() === emailUser ||
+    name.includes("@") ||
+    name.trim().length < 2
+  );
+}
+
 function getHeader(headers: any, name: string): string {
   if (!headers) return "";
 
@@ -423,10 +435,7 @@ export async function POST(req: Request) {
       contactUpdates.phone = contactInfo.phone;
     }
 
-    if (
-      contactInfo?.name &&
-      (!currentLead.name || currentLead.name === email.split("@")[0])
-    ) {
+    if (contactInfo?.name && isPlaceholderName(currentLead.name, email)) {
       contactUpdates.name = contactInfo.name;
     }
 
@@ -489,9 +498,14 @@ export async function POST(req: Request) {
       })
       .eq("id", currentLead.id);
 
+    const hasPhone = Boolean(currentLead.phone || contactInfo?.phone);
+    const hasRealName =
+      Boolean(contactInfo?.name) || !isPlaceholderName(currentLead.name, email);
+
     if (
       currentLead.conversation_stage === "collecting_contact_info" &&
-      (currentLead.phone || contactInfo?.phone) &&
+      hasPhone &&
+      hasRealName &&
       (currentLead.scheduled_date || currentLead.scheduled_time)
     ) {
       const confirmation = `Perfect — we have you scheduled for ${
@@ -539,11 +553,9 @@ export async function POST(req: Request) {
     console.log("Scheduling detection:", scheduling);
 
     if (scheduling.is_scheduling) {
-      const hasPhone = Boolean(currentLead.phone || contactInfo?.phone);
-
-      if (!hasPhone) {
+      if (!hasPhone || !hasRealName) {
         const askForContact =
-          "That time should work. Before I confirm the appointment, what is the best phone number to reach you?";
+          "That time should work. Before I confirm the appointment, what is your name and the best phone number to reach you?";
 
         await supabase
           .from("leads")
