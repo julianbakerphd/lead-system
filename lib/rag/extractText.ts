@@ -1,7 +1,3 @@
-import { createRequire } from "module";
-
-const require = createRequire(import.meta.url);
-
 export async function extractTextFromFile(
   fileName: string,
   mimeType: string,
@@ -19,7 +15,9 @@ export async function extractTextFromFile(
   }
 
   if (mimeType.includes("pdf") || lowerName.endsWith(".pdf")) {
-    const pdfParse = require("pdf-parse/lib/pdf-parse.js");
+    const pdfParseModule: any = await import("pdf-parse");
+    const pdfParse = pdfParseModule.default || pdfParseModule;
+
     const parsed = await pdfParse(buffer);
     return parsed.text || "";
   }
