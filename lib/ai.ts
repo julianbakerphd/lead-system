@@ -116,3 +116,59 @@ Message:
     };
   }
 }
+
+// 🔥 NEW — extract contact information before scheduling
+export async function extractContactInfo(message: string) {
+  const response = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: `
+You are extracting customer contact information from a message.
+
+Return JSON ONLY.
+
+Fields:
+- name (string or null)
+- phone (string or null)
+- email (string or null)
+- has_contact_info (true or false)
+
+Rules:
+- Only extract information that is explicitly present.
+- Do not invent a phone number, name, or email.
+- If the message contains a phone number, return it exactly as written.
+- If the message contains only scheduling information and no contact information, has_contact_info should be false.
+
+Examples:
+
+"My number is 727-555-1234"
+→ { "name": null, "phone": "727-555-1234", "email": null, "has_contact_info": true }
+
+"This is John. You can call me at 555-123-4567"
+→ { "name": "John", "phone": "555-123-4567", "email": null, "has_contact_info": true }
+
+"Tomorrow at 3pm works"
+→ { "name": null, "phone": null, "email": null, "has_contact_info": false }
+
+Message:
+"${message}"
+`,
+  });
+
+  const text = response.output_text ?? "";
+
+  const cleaned = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return {
+      name: null,
+      phone: null,
+      email: null,
+      has_contact_info: false,
+    };
+  }
+}
