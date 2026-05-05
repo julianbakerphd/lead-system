@@ -180,18 +180,26 @@ Answer:
 
     const answer = (response.output_text || "").trim();
 
-    const sources = chunks.map((chunk: any, index: number) => ({
-      number: index + 1,
-      document_id: chunk.document_id,
-      chunk_id: chunk.id,
-      document_title: chunk.document_title,
-      source_label: chunk.source_label,
-      similarity: chunk.similarity,
-      excerpt:
-        chunk.content.length > 260
-          ? `${chunk.content.slice(0, 260)}...`
-          : chunk.content,
-    }));
+    const citedSourceNumbers = Array.from(
+      answer.matchAll(/\[Source\s+(\d+)\]/gi),
+    ).map((match) => Number(match[1]));
+
+    const citedSet = new Set(citedSourceNumbers);
+
+    const sources = chunks
+      .map((chunk: any, index: number) => ({
+        number: index + 1,
+        document_id: chunk.document_id,
+        chunk_id: chunk.id,
+        document_title: chunk.document_title,
+        source_label: chunk.source_label,
+        similarity: chunk.similarity,
+        excerpt:
+          chunk.content.length > 260
+            ? `${chunk.content.slice(0, 260)}...`
+            : chunk.content,
+      }))
+      .filter((source: { number: number }) => citedSet.has(source.number));
 
     await supabase.from("rag_chat_messages").insert([
       {
