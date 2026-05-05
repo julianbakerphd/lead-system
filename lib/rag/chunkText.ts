@@ -1,7 +1,8 @@
 export function chunkText(
   text: string,
-  chunkSize = 1200,
-  overlap = 200,
+  chunkSize = 1000,
+  overlap = 150,
+  maxChunks = 100,
 ): string[] {
   const cleaned = text
     .replace(/\r/g, "\n")
@@ -14,32 +15,44 @@ export function chunkText(
   const chunks: string[] = [];
   let start = 0;
 
-  while (start < cleaned.length) {
-    const end = Math.min(start + chunkSize, cleaned.length);
-    let chunk = cleaned.slice(start, end).trim();
+  while (start < cleaned.length && chunks.length < maxChunks) {
+    const hardEnd = Math.min(start + chunkSize, cleaned.length);
+    let chunkEnd = hardEnd;
 
-    if (end < cleaned.length) {
-      const lastParagraphBreak = chunk.lastIndexOf("\n\n");
-      const lastSentenceBreak = Math.max(
-        chunk.lastIndexOf(". "),
-        chunk.lastIndexOf("? "),
-        chunk.lastIndexOf("! "),
+    if (hardEnd < cleaned.length) {
+      const slice = cleaned.slice(start, hardEnd);
+
+      const paragraphBreak = slice.lastIndexOf("\n\n");
+      const sentenceBreak = Math.max(
+        slice.lastIndexOf(". "),
+        slice.lastIndexOf("? "),
+        slice.lastIndexOf("! "),
       );
 
-      const bestBreak = Math.max(lastParagraphBreak, lastSentenceBreak);
+      const bestBreak = Math.max(paragraphBreak, sentenceBreak);
 
       if (bestBreak > chunkSize * 0.5) {
-        chunk = chunk.slice(0, bestBreak + 1).trim();
+        chunkEnd = start + bestBreak + 1;
       }
     }
 
-    if (chunk.length > 50) {
+    const chunk = cleaned.slice(start, chunkEnd).trim();
+
+    if (chunk.length > 30) {
       chunks.push(chunk);
     }
 
-    start += chunk.length - overlap;
+    if (chunkEnd >= cleaned.length) {
+      break;
+    }
 
-    if (start < 0 || start >= cleaned.length) break;
+    const nextStart = chunkEnd - overlap;
+
+    if (nextStart <= start) {
+      start = chunkEnd;
+    } else {
+      start = nextStart;
+    }
   }
 
   return chunks;

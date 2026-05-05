@@ -30,8 +30,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchLeads();
-    }, 3000);
+      if (document.visibilityState === "visible") {
+        fetchLeads();
+      }
+    }, 30000);
 
     return () => clearInterval(interval);
   }, []);
@@ -145,7 +147,9 @@ export default function Dashboard() {
   }
 
   const totalLeads = leads.length;
-  const scheduledLeads = leads.filter((lead) => lead.status === "scheduled").length;
+  const scheduledLeads = leads.filter(
+    (lead) => lead.status === "scheduled",
+  ).length;
   const newLeads = leads.filter((lead) => lead.status === "new").length;
   const autoRepliedLeads = leads.filter(
     (lead) => lead.latest_system_message || lead.suggested_response,
@@ -158,7 +162,8 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold">Smart Email Leads Dashboard</h1>
             <p className="text-sm text-gray-600 mt-1">
-              AI-powered inbound email replies, lead tracking, and conversation history.
+              AI-powered inbound email replies, lead tracking, and conversation
+              history.
             </p>
           </div>
         </div>
@@ -258,7 +263,8 @@ export default function Dashboard() {
                           }))
                         }
                       />
-                      {(lead.latest_system_message || lead.suggested_response) && (
+                      {(lead.latest_system_message ||
+                        lead.suggested_response) && (
                         <div className="mt-1 text-xs text-blue-600">
                           AI reply generated
                         </div>
