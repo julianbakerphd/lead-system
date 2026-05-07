@@ -124,6 +124,32 @@ export async function POST(req: Request) {
       updates.contacted_at = now;
     }
 
+    const { error: messageInsertError } = await supabase
+      .from("portfolio_lead_messages")
+      .insert([
+        {
+          lead_id: id,
+          sender: "business",
+          content: replyToSend,
+          subject,
+          message_id: suggestedReplyMessageId,
+          in_reply_to: replyMessageId,
+          references_header: references || replyMessageId,
+          resend_email_id: sentData?.id || null,
+          sent_at: now,
+        },
+      ]);
+
+    if (messageInsertError) {
+      return Response.json(
+        {
+          success: false,
+          error: messageInsertError.message,
+        },
+        { status: 500 },
+      );
+    }
+
     const { data: updatedLead, error: updateError } = await supabase
       .from("portfolio_leads")
       .update(updates)

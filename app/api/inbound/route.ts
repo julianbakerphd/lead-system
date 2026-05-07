@@ -252,6 +252,21 @@ function referencesContainMessageId(
   return refs.includes(id) || refs.includes(idWithoutBrackets);
 }
 
+function isRecentLeadDemoRecord(lead: any) {
+  const dateValue =
+    lead.suggested_reply_sent_at ||
+    lead.customer_confirmation_sent_at ||
+    lead.updated_at ||
+    lead.created_at;
+
+  if (!dateValue) return false;
+
+  const ageMs = Date.now() - new Date(dateValue).getTime();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+  return ageMs >= 0 && ageMs <= sevenDaysMs;
+}
+
 async function handleLeadDemoReply(params: {
   email: string;
   subject: string;
@@ -271,7 +286,13 @@ async function handleLeadDemoReply(params: {
     return false;
   }
 
-  const portfolioLead = (portfolioLeads || []).find((lead) => {
+  const leads = portfolioLeads || [];
+
+  if (leads.length === 0) {
+    return false;
+  }
+
+  const headerMatchedLead = leads.find((lead) => {
     const messageIdsToCheck = [
       lead.customer_confirmation_message_id,
       lead.suggested_reply_message_id,
@@ -283,39 +304,55 @@ async function handleLeadDemoReply(params: {
     );
   });
 
+  const recentFallbackLead = leads.find((lead) => isRecentLeadDemoRecord(lead));
+
+  const portfolioLead = headerMatchedLead || recentFallbackLead;
+
   if (!portfolioLead) {
     return false;
   }
 
-  console.log("Inbound email matched portfolio lead:", portfolioLead.id);
+  console.log("Inbound email matched portfolio lead:", {
+    portfolio_lead_id: portfolioLead.id,
+    match_type: headerMatchedLead ? "header" : "recent_email_fallback",
+    email: params.email,
+    subject: params.subject,
+    referencesForReply: params.referencesForReply,
+  });
 
-  const conversation = [
-    {
-      role: "user",
-      content: portfolioLead.message || "",
-    },
-  ];
+  const { data: threadMessages, error: threadError } = await supabase
+    .from("portfolio_lead_messages")
+    .select("*")
+    .eq("lead_id", portfolioLead.id)
+    .order("created_at", { ascending: true });
 
-  if (portfolioLead.ai_suggested_reply) {
-    conversation.push({
-      role: "assistant",
-      content: portfolioLead.ai_suggested_reply,
-    });
+  if (threadError) {
+    console.error(
+      "Failed to fetch portfolio lead message thread:",
+      threadError,
+    );
   }
 
-  if (portfolioLead.latest_customer_reply) {
-    conversation.push({
-      role: "user",
-      content: portfolioLead.latest_customer_reply,
-    });
-  }
-
-  if (portfolioLead.latest_ai_reply_to_customer) {
-    conversation.push({
-      role: "assistant",
-      content: portfolioLead.latest_ai_reply_to_customer,
-    });
-  }
+  const conversation =
+    threadMessages && threadMessages.length > 0
+      ? threadMessages.map((message) => ({
+          role: message.sender === "customer" ? "user" : "assistant",
+          content: message.content,
+        }))
+      : [
+          {
+            role: "user",
+            content: portfolioLead.message || "",
+          },
+          ...(portfolioLead.ai_suggested_reply
+            ? [
+                {
+                  role: "assistant",
+                  content: portfolioLead.ai_suggested_reply,
+                },
+              ]
+            : []),
+        ];
 
   conversation.push({
     role: "user",
@@ -336,6 +373,7 @@ async function handleLeadDemoReply(params: {
       latest_customer_reply_references: params.referencesForReply || null,
       latest_ai_reply_to_customer: suggestedReply,
       latest_ai_reply_generated_at: now,
+      suggested_reply_last_error: null,
       updated_at: now,
     })
     .eq("id", portfolioLead.id);
@@ -343,6 +381,35 @@ async function handleLeadDemoReply(params: {
   if (updateError) {
     console.error("Failed to update portfolio lead reply:", updateError);
     throw new Error(updateError.message);
+  }
+
+  const { error: messageInsertError } = await supabase
+    .from("portfolio_lead_messages")
+    .insert([
+      {
+        lead_id: portfolioLead.id,
+        sender: "customer",
+        content: params.message,
+        subject: params.subject,
+        message_id: params.incomingMessageId || null,
+        references_header: params.referencesForReply || null,
+      },
+      {
+        lead_id: portfolioLead.id,
+        sender: "ai",
+        content: suggestedReply,
+        subject: "AI suggested reply",
+        in_reply_to: params.incomingMessageId || null,
+        references_header: params.referencesForReply || null,
+      },
+    ]);
+
+  if (messageInsertError) {
+    console.error(
+      "Failed to insert portfolio lead message thread:",
+      messageInsertError,
+    );
+    throw new Error(messageInsertError.message);
   }
 
   return true;
@@ -530,6 +597,8 @@ export async function POST(req: Request) {
     });
 
     if (handledLeadDemoReply) {
+      console.log("Lead demo reply handled. No automatic email sent.");
+
       return Response.json({
         success: true,
         lead_demo_reply: true,

@@ -5,6 +5,20 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 
 type LeadStatus = "new" | "contacted" | "quoted" | "won" | "lost";
 
+type PortfolioLeadMessage = {
+  id: string;
+  lead_id: string;
+  sender: "customer" | "ai" | "business";
+  content: string;
+  subject: string | null;
+  message_id: string | null;
+  in_reply_to: string | null;
+  references_header: string | null;
+  resend_email_id: string | null;
+  sent_at: string | null;
+  created_at: string;
+};
+
 type PortfolioLead = {
   id: string;
   created_at: string;
@@ -42,6 +56,7 @@ type PortfolioLead = {
   latest_customer_reply_references: string | null;
   latest_ai_reply_to_customer: string | null;
   latest_ai_reply_generated_at: string | null;
+  messages?: PortfolioLeadMessage[];
 };
 
 function formatDate(value: string | null | undefined) {
@@ -115,30 +130,95 @@ function aiPriorityClass(priority: PortfolioLead["ai_priority"]) {
   return "bg-slate-100 text-slate-700";
 }
 
-function getReplyToSend(lead: PortfolioLead) {
-  return lead.latest_ai_reply_to_customer || lead.ai_suggested_reply;
-}
-
-function hasNewCustomerReplyWaiting(lead: PortfolioLead) {
-  if (!lead.latest_customer_reply_at) return false;
-  if (!lead.suggested_reply_sent_at) return true;
-
-  return (
-    new Date(lead.latest_customer_reply_at).getTime() >
-    new Date(lead.suggested_reply_sent_at).getTime()
-  );
-}
-
-function canSendReply(lead: PortfolioLead) {
-  const replyToSend = getReplyToSend(lead);
-
-  if (!replyToSend) return false;
-
-  if (lead.latest_customer_reply_at) {
-    return hasNewCustomerReplyWaiting(lead);
+function buildDisplayMessages(lead: PortfolioLead): PortfolioLeadMessage[] {
+  if (lead.messages && lead.messages.length > 0) {
+    return lead.messages;
   }
 
-  return !lead.suggested_reply_sent_at;
+  const fallbackMessages: PortfolioLeadMessage[] = [
+    {
+      id: `${lead.id}-original-customer`,
+      lead_id: lead.id,
+      sender: "customer",
+      content: lead.message,
+      subject: "Website form submission",
+      message_id: null,
+      in_reply_to: null,
+      references_header: null,
+      resend_email_id: null,
+      sent_at: null,
+      created_at: lead.created_at,
+    },
+  ];
+
+  if (lead.ai_suggested_reply) {
+    fallbackMessages.push({
+      id: `${lead.id}-initial-ai`,
+      lead_id: lead.id,
+      sender: "ai",
+      content: lead.ai_suggested_reply,
+      subject: "Initial AI suggested reply",
+      message_id: null,
+      in_reply_to: null,
+      references_header: null,
+      resend_email_id: null,
+      sent_at: null,
+      created_at: lead.ai_processed_at || lead.created_at,
+    });
+  }
+
+  if (lead.latest_customer_reply) {
+    fallbackMessages.push({
+      id: `${lead.id}-latest-customer`,
+      lead_id: lead.id,
+      sender: "customer",
+      content: lead.latest_customer_reply,
+      subject: lead.latest_customer_reply_subject,
+      message_id: lead.latest_customer_reply_message_id,
+      in_reply_to: null,
+      references_header: lead.latest_customer_reply_references,
+      resend_email_id: null,
+      sent_at: null,
+      created_at: lead.latest_customer_reply_at || lead.updated_at,
+    });
+  }
+
+  if (lead.latest_ai_reply_to_customer) {
+    fallbackMessages.push({
+      id: `${lead.id}-latest-ai`,
+      lead_id: lead.id,
+      sender: "ai",
+      content: lead.latest_ai_reply_to_customer,
+      subject: "AI suggested reply",
+      message_id: null,
+      in_reply_to: lead.latest_customer_reply_message_id,
+      references_header: lead.latest_customer_reply_references,
+      resend_email_id: null,
+      sent_at: null,
+      created_at: lead.latest_ai_reply_generated_at || lead.updated_at,
+    });
+  }
+
+  return fallbackMessages;
+}
+
+function getLastAiMessageIndex(messages: PortfolioLeadMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].sender === "ai") return i;
+  }
+
+  return -1;
+}
+
+function hasOpenAiDraft(lead: PortfolioLead) {
+  const messages = buildDisplayMessages(lead);
+  return messages.length > 0 && messages[messages.length - 1].sender === "ai";
+}
+
+function messageCardClass(sender: PortfolioLeadMessage["sender"]) {
+  if (sender === "customer") return "border-blue-200 bg-blue-50";
+  if (sender === "ai") return "border-purple-200 bg-purple-50";
+  return "border-green-200 bg-green-50";
 }
 
 export default function LeadDemoDashboardPage() {
@@ -243,9 +323,7 @@ export default function LeadDemoDashboardPage() {
         throw new Error(data.error || "Suggested reply send failed.");
       }
 
-      setLeads((prev) =>
-        prev.map((lead) => (lead.id === id ? data.data : lead)),
-      );
+      await fetchLeads();
     } catch (err: any) {
       setError(err?.message || "Suggested reply send failed.");
     } finally {
@@ -409,10 +487,7 @@ export default function LeadDemoDashboardPage() {
                 <tbody>
                   {leads.map((lead) => {
                     const risk = getFollowUpRisk(lead, now);
-                    const replyToSend = getReplyToSend(lead);
-                    const hasWaitingCustomerReply =
-                      hasNewCustomerReplyWaiting(lead);
-                    const sendEnabled = canSendReply(lead);
+                    const openAiDraft = hasOpenAiDraft(lead);
 
                     return (
                       <Fragment key={lead.id}>
@@ -447,9 +522,9 @@ export default function LeadDemoDashboardPage() {
                               </span>
                             )}
 
-                            {hasWaitingCustomerReply && (
-                              <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">
-                                New customer reply
+                            {openAiDraft && (
+                              <span className="mt-2 inline-flex rounded-full bg-purple-100 px-2 py-1 text-xs font-semibold text-purple-700">
+                                AI reply ready
                               </span>
                             )}
                           </td>
@@ -530,39 +605,9 @@ export default function LeadDemoDashboardPage() {
                               <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
                                 <div className="space-y-5 lg:col-span-2">
                                   <div className="rounded-xl border bg-white p-4">
-                                    <div className="text-sm font-bold text-slate-950">
-                                      Original Customer Message
-                                    </div>
-
-                                    <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                                      {lead.message}
-                                    </div>
-                                  </div>
-
-                                  {lead.latest_customer_reply && (
-                                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                                      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                                        <div className="text-sm font-bold text-slate-950">
-                                          Latest Customer Reply
-                                        </div>
-
-                                        <div className="text-xs text-slate-500">
-                                          {formatDate(
-                                            lead.latest_customer_reply_at,
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                                        {lead.latest_customer_reply}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <div className="rounded-xl border bg-white p-4">
                                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                                       <div className="text-sm font-bold text-slate-950">
-                                        AI Assistance
+                                        AI Lead Summary
                                       </div>
 
                                       <span
@@ -575,98 +620,162 @@ export default function LeadDemoDashboardPage() {
                                       </span>
                                     </div>
 
-                                    {lead.ai_summary ||
-                                    lead.ai_next_action ||
-                                    replyToSend ? (
-                                      <div className="mt-4 space-y-4 text-sm text-slate-700">
-                                        <div>
-                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            Summary
-                                          </div>
-                                          <div className="mt-1">
-                                            {lead.ai_summary ||
-                                              "No summary available."}
-                                          </div>
+                                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                      <div>
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                          Summary
                                         </div>
-
-                                        <div>
-                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            Suggested Next Action
-                                          </div>
-                                          <div className="mt-1">
-                                            {lead.ai_next_action ||
-                                              "No next action available."}
-                                          </div>
-                                        </div>
-
-                                        <div>
-                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            {lead.latest_customer_reply
-                                              ? "AI Suggested Reply to Latest Customer Email"
-                                              : "Suggested Reply"}
-                                          </div>
-
-                                          <div className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3">
-                                            {replyToSend ||
-                                              "No suggested reply available."}
-                                          </div>
-
-                                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                                            <button
-                                              onClick={() =>
-                                                sendSuggestedReply(lead.id)
-                                              }
-                                              disabled={
-                                                sendingSuggestedReplyId ===
-                                                  lead.id || !sendEnabled
-                                              }
-                                              className={`rounded-lg px-4 py-2 text-xs font-semibold text-white ${
-                                                sendEnabled
-                                                  ? sendingSuggestedReplyId ===
-                                                    lead.id
-                                                    ? "bg-slate-400"
-                                                    : "bg-blue-600 hover:bg-blue-700"
-                                                  : "bg-green-600"
-                                              }`}
-                                            >
-                                              {sendingSuggestedReplyId ===
-                                              lead.id
-                                                ? "Sending..."
-                                                : sendEnabled
-                                                  ? lead.latest_customer_reply
-                                                    ? "Send Reply to Customer"
-                                                    : "Send Suggested Reply"
-                                                  : "Sent ✓"}
-                                            </button>
-
-                                            {lead.suggested_reply_sent_at && (
-                                              <span className="text-xs text-slate-500">
-                                                Last sent:{" "}
-                                                {formatDate(
-                                                  lead.suggested_reply_sent_at,
-                                                )}
-                                              </span>
-                                            )}
-                                          </div>
-
-                                          {lead.suggested_reply_last_error && (
-                                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-                                              {lead.suggested_reply_last_error}
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        <div className="text-xs text-slate-500">
-                                          AI processed:{" "}
-                                          {formatDate(
-                                            lead.latest_ai_reply_generated_at ||
-                                              lead.ai_processed_at,
-                                          )}
+                                        <div className="mt-1 text-sm text-slate-700">
+                                          {lead.ai_summary ||
+                                            "No summary available."}
                                         </div>
                                       </div>
-                                    ) : (
-                                      <div className="mt-3 text-sm text-slate-500">
-                                        No AI analysis available for this lead.
+
+                                      <div>
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                          Suggested Next Action
+                                        </div>
+                                        <div className="mt-1 text-sm text-slate-700">
+                                          {lead.ai_next_action ||
+                                            "No next action available."}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="rounded-xl border bg-white p-4">
+                                    <div className="mb-4 text-sm font-bold text-slate-950">
+                                      Conversation Thread
+                                    </div>
+
+                                    <div className="space-y-4">
+                                      {(() => {
+                                        const messages =
+                                          buildDisplayMessages(lead);
+                                        const lastAiIndex =
+                                          getLastAiMessageIndex(messages);
+                                        const latestMessageIndex =
+                                          messages.length - 1;
+
+                                        let customerReplyCount = 0;
+                                        let aiSuggestionCount = 0;
+                                        let businessReplyCount = 0;
+                                        let firstCustomerSeen = false;
+
+                                        return messages.map(
+                                          (message, index) => {
+                                            let title = "";
+
+                                            if (message.sender === "customer") {
+                                              if (!firstCustomerSeen) {
+                                                title =
+                                                  "Original Customer Message";
+                                                firstCustomerSeen = true;
+                                              } else {
+                                                customerReplyCount += 1;
+                                                title = `Customer Reply #${customerReplyCount}`;
+                                              }
+                                            }
+
+                                            if (message.sender === "ai") {
+                                              aiSuggestionCount += 1;
+                                              title =
+                                                aiSuggestionCount === 1
+                                                  ? "Initial Suggested Reply"
+                                                  : `AI Suggested Reply #${
+                                                      aiSuggestionCount - 1
+                                                    }`;
+                                            }
+
+                                            if (message.sender === "business") {
+                                              businessReplyCount += 1;
+                                              title =
+                                                businessReplyCount === 1
+                                                  ? "Sent Initial Suggested Reply"
+                                                  : `Sent Reply #${
+                                                      businessReplyCount - 1
+                                                    }`;
+                                            }
+
+                                            const isOpenAiDraft =
+                                              message.sender === "ai" &&
+                                              index === lastAiIndex &&
+                                              index === latestMessageIndex;
+
+                                            return (
+                                              <div
+                                                key={message.id}
+                                                className={`rounded-xl border p-4 ${messageCardClass(
+                                                  message.sender,
+                                                )}`}
+                                              >
+                                                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                                  <div className="text-sm font-bold text-slate-950">
+                                                    {title}
+                                                  </div>
+
+                                                  <div className="text-xs text-slate-500">
+                                                    {formatDate(
+                                                      message.sent_at ||
+                                                        message.created_at,
+                                                    )}
+                                                  </div>
+                                                </div>
+
+                                                <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                                                  {message.content}
+                                                </div>
+
+                                                {isOpenAiDraft && (
+                                                  <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                                                    <button
+                                                      onClick={() =>
+                                                        sendSuggestedReply(
+                                                          lead.id,
+                                                        )
+                                                      }
+                                                      disabled={
+                                                        sendingSuggestedReplyId ===
+                                                        lead.id
+                                                      }
+                                                      className={`rounded-lg px-4 py-2 text-xs font-semibold text-white ${
+                                                        sendingSuggestedReplyId ===
+                                                        lead.id
+                                                          ? "bg-slate-400"
+                                                          : "bg-blue-600 hover:bg-blue-700"
+                                                      }`}
+                                                    >
+                                                      {sendingSuggestedReplyId ===
+                                                      lead.id
+                                                        ? "Sending..."
+                                                        : aiSuggestionCount ===
+                                                            1
+                                                          ? "Send Suggested Reply"
+                                                          : "Send Reply"}
+                                                    </button>
+
+                                                    <span className="text-xs text-slate-500">
+                                                      Review before sending.
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          },
+                                        );
+                                      })()}
+
+                                      {buildDisplayMessages(lead).length ===
+                                        0 && (
+                                        <div className="rounded-lg border border-dashed p-4 text-sm text-slate-500">
+                                          No conversation messages yet.
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {lead.suggested_reply_last_error && (
+                                      <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                                        {lead.suggested_reply_last_error}
                                       </div>
                                     )}
                                   </div>

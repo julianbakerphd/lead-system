@@ -87,7 +87,7 @@ Contact this lead before the follow-up deadline so it does not become overdue.`;
 }
 
 export async function GET() {
-  const { data, error } = await supabase
+  const { data: leads, error } = await supabase
     .from("portfolio_leads")
     .select("*")
     .order("created_at", { ascending: false });
@@ -102,9 +102,32 @@ export async function GET() {
     );
   }
 
+  const leadIds = (leads || []).map((lead) => lead.id);
+
+  let messages: any[] = [];
+
+  if (leadIds.length > 0) {
+    const { data: messageData, error: messageError } = await supabase
+      .from("portfolio_lead_messages")
+      .select("*")
+      .in("lead_id", leadIds)
+      .order("created_at", { ascending: true });
+
+    if (messageError) {
+      console.error("Portfolio lead messages fetch failed:", messageError);
+    } else {
+      messages = messageData || [];
+    }
+  }
+
+  const data = (leads || []).map((lead) => ({
+    ...lead,
+    messages: messages.filter((message) => message.lead_id === lead.id),
+  }));
+
   return Response.json({
     success: true,
-    data: data || [],
+    data,
   });
 }
 
@@ -184,6 +207,35 @@ export async function POST(req: Request) {
           error: error?.message || "Failed to create lead.",
         },
         { status: 500 },
+      );
+    }
+
+    const initialMessages = [
+      {
+        lead_id: data.id,
+        sender: "customer",
+        content: message,
+        subject: "Website form submission",
+      },
+    ];
+
+    if (aiResult.ai_suggested_reply) {
+      initialMessages.push({
+        lead_id: data.id,
+        sender: "ai",
+        content: aiResult.ai_suggested_reply,
+        subject: "Initial AI suggested reply",
+      });
+    }
+
+    const { error: messageInsertError } = await supabase
+      .from("portfolio_lead_messages")
+      .insert(initialMessages);
+
+    if (messageInsertError) {
+      console.error(
+        "Initial portfolio lead messages insert failed:",
+        messageInsertError,
       );
     }
 
