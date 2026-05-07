@@ -9,6 +9,8 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY!);
 
+const SYSTEM_EMAILS = ["support@contact.jbakertech.com"];
+
 function stripHtml(html: string) {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -33,6 +35,10 @@ function parseEmailAddress(input: any): string {
 
   const emailMatch = raw.match(/<(.+?)>/);
   return (emailMatch ? emailMatch[1] : raw).trim().toLowerCase();
+}
+
+function isSystemEmail(email: string) {
+  return SYSTEM_EMAILS.includes(email.trim().toLowerCase());
 }
 
 function isPlaceholderName(name: string | null | undefined, email: string) {
@@ -242,6 +248,16 @@ export async function POST(req: Request) {
     const data = body?.data || {};
 
     const email = parseEmailAddress(data?.from || body?.email);
+
+    if (isSystemEmail(email)) {
+      console.log("Ignoring inbound email from system address:", email);
+
+      return Response.json({
+        success: true,
+        ignored: true,
+        reason: "Ignored system-generated email to prevent auto-reply loop.",
+      });
+    }
 
     let subject = data?.subject || "Your inquiry";
 
