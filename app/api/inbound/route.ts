@@ -271,12 +271,17 @@ async function handleLeadDemoReply(params: {
     return false;
   }
 
-  const portfolioLead = (portfolioLeads || []).find((lead) =>
-    referencesContainMessageId(
-      params.referencesForReply,
+  const portfolioLead = (portfolioLeads || []).find((lead) => {
+    const messageIdsToCheck = [
       lead.customer_confirmation_message_id,
-    ),
-  );
+      lead.suggested_reply_message_id,
+      lead.latest_customer_reply_message_id,
+    ];
+
+    return messageIdsToCheck.some((messageId) =>
+      referencesContainMessageId(params.referencesForReply, messageId),
+    );
+  });
 
   if (!portfolioLead) {
     return false;
@@ -295,6 +300,20 @@ async function handleLeadDemoReply(params: {
     conversation.push({
       role: "assistant",
       content: portfolioLead.ai_suggested_reply,
+    });
+  }
+
+  if (portfolioLead.latest_customer_reply) {
+    conversation.push({
+      role: "user",
+      content: portfolioLead.latest_customer_reply,
+    });
+  }
+
+  if (portfolioLead.latest_ai_reply_to_customer) {
+    conversation.push({
+      role: "assistant",
+      content: portfolioLead.latest_ai_reply_to_customer,
     });
   }
 
@@ -357,6 +376,12 @@ export async function POST(req: Request) {
       getHeader(data?.headers, "Message-ID") ||
       "";
 
+    let inReplyToHeader =
+      data?.in_reply_to ||
+      data?.inReplyTo ||
+      getHeader(data?.headers, "In-Reply-To") ||
+      "";
+
     let referencesHeader =
       data?.references ||
       getHeader(data?.headers, "References") ||
@@ -404,6 +429,12 @@ export async function POST(req: Request) {
         received?.messageId ||
         getHeader(receivedHeaders, "Message-ID") ||
         incomingMessageId;
+
+      inReplyToHeader =
+        received?.in_reply_to ||
+        received?.inReplyTo ||
+        getHeader(receivedHeaders, "In-Reply-To") ||
+        inReplyToHeader;
 
       referencesHeader =
         received?.references ||
@@ -481,7 +512,11 @@ export async function POST(req: Request) {
     console.log("Parsed subject:", subject);
     console.log("Parsed message:", message);
 
-    const referencesForReply = [referencesHeader, incomingMessageId]
+    const referencesForReply = [
+      referencesHeader,
+      inReplyToHeader,
+      incomingMessageId,
+    ]
       .filter(Boolean)
       .join(" ")
       .trim();

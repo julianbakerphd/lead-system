@@ -13,6 +13,10 @@ function makeReplySubject(subject: string | null | undefined) {
   return subject || "We received your request";
 }
 
+function makeMessageId() {
+  return `<lead-demo-reply-${crypto.randomUUID()}@contact.jbakertech.com>`;
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as SendSuggestedReplyBody;
@@ -69,6 +73,7 @@ export async function POST(req: Request) {
 
     const replyMessageId =
       lead.latest_customer_reply_message_id ||
+      lead.suggested_reply_message_id ||
       lead.customer_confirmation_message_id;
 
     if (!replyMessageId) {
@@ -88,6 +93,7 @@ export async function POST(req: Request) {
 
     const references = [
       lead.customer_confirmation_message_id,
+      lead.suggested_reply_message_id,
       lead.latest_customer_reply_references,
       lead.latest_customer_reply_message_id,
     ]
@@ -96,8 +102,10 @@ export async function POST(req: Request) {
       .trim();
 
     const now = new Date().toISOString();
+    const suggestedReplyMessageId = makeMessageId();
 
     const sent = await sendEmail(lead.email, subject, replyToSend, {
+      messageId: suggestedReplyMessageId,
       inReplyTo: replyMessageId,
       references: references || replyMessageId,
     });
@@ -108,6 +116,7 @@ export async function POST(req: Request) {
       status: "contacted",
       suggested_reply_sent_at: now,
       suggested_reply_email_id: sentData?.id || null,
+      suggested_reply_message_id: suggestedReplyMessageId,
       suggested_reply_last_error: null,
     };
 
