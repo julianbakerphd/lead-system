@@ -26,6 +26,10 @@ function normalizeUrgency(value: string) {
   return "normal";
 }
 
+function makeMessageId() {
+  return `<lead-demo-${crypto.randomUUID()}@contact.jbakertech.com>`;
+}
+
 function buildCustomerConfirmation(name: string, serviceNeeded: string) {
   return `Hi ${name},
 
@@ -188,6 +192,8 @@ export async function POST(req: Request) {
     const emailUpdates: {
       business_alert_sent_at?: string;
       customer_confirmation_sent_at?: string;
+      customer_confirmation_message_id?: string;
+      customer_confirmation_subject?: string;
       last_error?: string | null;
     } = {};
 
@@ -223,13 +229,22 @@ export async function POST(req: Request) {
     }
 
     try {
+      const customerConfirmationSubject = "We received your request";
+      const customerConfirmationMessageId = makeMessageId();
+
       await sendEmail(
         email,
-        "We received your request",
+        customerConfirmationSubject,
         buildCustomerConfirmation(name, serviceNeeded),
+        {
+          messageId: customerConfirmationMessageId,
+        },
       );
 
       emailUpdates.customer_confirmation_sent_at = new Date().toISOString();
+      emailUpdates.customer_confirmation_message_id =
+        customerConfirmationMessageId;
+      emailUpdates.customer_confirmation_subject = customerConfirmationSubject;
     } catch (err: any) {
       emailUpdates.last_error =
         err?.message || "Customer confirmation email failed.";

@@ -24,6 +24,11 @@ type PortfolioLead = {
   outcome: "won" | "lost" | null;
   business_alert_sent_at: string | null;
   customer_confirmation_sent_at: string | null;
+  customer_confirmation_message_id: string | null;
+  customer_confirmation_subject: string | null;
+  suggested_reply_sent_at: string | null;
+  suggested_reply_email_id: string | null;
+  suggested_reply_last_error: string | null;
   last_error: string | null;
   ai_summary: string | null;
   ai_priority: "low" | "medium" | "high" | null;
@@ -107,6 +112,9 @@ export default function LeadDemoDashboardPage() {
   const [leads, setLeads] = useState<PortfolioLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [sendingSuggestedReplyId, setSendingSuggestedReplyId] = useState<
+    string | null
+  >(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
@@ -178,6 +186,37 @@ export default function LeadDemoDashboardPage() {
       setError(err?.message || "Status update failed.");
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function sendSuggestedReply(id: string) {
+    try {
+      setSendingSuggestedReplyId(id);
+      setError(null);
+
+      const res = await fetch("/api/lead-demo/send-suggested-reply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Suggested reply send failed.");
+      }
+
+      setLeads((prev) =>
+        prev.map((lead) => (lead.id === id ? data.data : lead)),
+      );
+    } catch (err: any) {
+      setError(err?.message || "Suggested reply send failed.");
+    } finally {
+      setSendingSuggestedReplyId(null);
     }
   }
 
@@ -505,6 +544,52 @@ export default function LeadDemoDashboardPage() {
                                             {lead.ai_suggested_reply ||
                                               "No suggested reply available."}
                                           </div>
+
+                                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                                            <button
+                                              onClick={() =>
+                                                sendSuggestedReply(lead.id)
+                                              }
+                                              disabled={
+                                                sendingSuggestedReplyId ===
+                                                  lead.id ||
+                                                !lead.ai_suggested_reply ||
+                                                Boolean(
+                                                  lead.suggested_reply_sent_at,
+                                                )
+                                              }
+                                              className={`rounded-lg px-4 py-2 text-xs font-semibold text-white ${
+                                                lead.suggested_reply_sent_at
+                                                  ? "bg-green-600"
+                                                  : sendingSuggestedReplyId ===
+                                                      lead.id
+                                                    ? "bg-slate-400"
+                                                    : "bg-blue-600 hover:bg-blue-700"
+                                              }`}
+                                            >
+                                              {lead.suggested_reply_sent_at
+                                                ? "Sent ✓"
+                                                : sendingSuggestedReplyId ===
+                                                    lead.id
+                                                  ? "Sending..."
+                                                  : "Send Suggested Reply"}
+                                            </button>
+
+                                            {lead.suggested_reply_sent_at && (
+                                              <span className="text-xs text-slate-500">
+                                                Sent:{" "}
+                                                {formatDate(
+                                                  lead.suggested_reply_sent_at,
+                                                )}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {lead.suggested_reply_last_error && (
+                                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                                              {lead.suggested_reply_last_error}
+                                            </div>
+                                          )}
                                         </div>
 
                                         <div className="text-xs text-slate-500">
@@ -538,6 +623,10 @@ export default function LeadDemoDashboardPage() {
                                       {formatDate(
                                         lead.customer_confirmation_sent_at,
                                       )}
+                                    </div>
+                                    <div>
+                                      Suggested Reply Sent:{" "}
+                                      {formatDate(lead.suggested_reply_sent_at)}
                                     </div>
                                     <div>
                                       Contacted: {formatDate(lead.contacted_at)}

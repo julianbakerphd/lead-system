@@ -6,6 +6,7 @@ type SendEmailOptions = {
   inReplyTo?: string;
   references?: string;
   quotedText?: string;
+  messageId?: string;
 };
 
 export async function sendEmail(
@@ -22,6 +23,10 @@ On the previous email, the customer wrote:
     : body;
 
   const headers: Record<string, string> = {};
+
+  if (options.messageId) {
+    headers["Message-ID"] = options.messageId;
+  }
 
   if (options.inReplyTo) {
     headers["In-Reply-To"] = options.inReplyTo;
