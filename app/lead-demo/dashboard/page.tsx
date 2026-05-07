@@ -35,6 +35,13 @@ type PortfolioLead = {
   ai_next_action: string | null;
   ai_suggested_reply: string | null;
   ai_processed_at: string | null;
+  latest_customer_reply: string | null;
+  latest_customer_reply_at: string | null;
+  latest_customer_reply_subject: string | null;
+  latest_customer_reply_message_id: string | null;
+  latest_customer_reply_references: string | null;
+  latest_ai_reply_to_customer: string | null;
+  latest_ai_reply_generated_at: string | null;
 };
 
 function formatDate(value: string | null | undefined) {
@@ -106,6 +113,32 @@ function aiPriorityClass(priority: PortfolioLead["ai_priority"]) {
   if (priority === "medium") return "bg-orange-100 text-orange-700";
   if (priority === "low") return "bg-green-100 text-green-700";
   return "bg-slate-100 text-slate-700";
+}
+
+function getReplyToSend(lead: PortfolioLead) {
+  return lead.latest_ai_reply_to_customer || lead.ai_suggested_reply;
+}
+
+function hasNewCustomerReplyWaiting(lead: PortfolioLead) {
+  if (!lead.latest_customer_reply_at) return false;
+  if (!lead.suggested_reply_sent_at) return true;
+
+  return (
+    new Date(lead.latest_customer_reply_at).getTime() >
+    new Date(lead.suggested_reply_sent_at).getTime()
+  );
+}
+
+function canSendReply(lead: PortfolioLead) {
+  const replyToSend = getReplyToSend(lead);
+
+  if (!replyToSend) return false;
+
+  if (lead.latest_customer_reply_at) {
+    return hasNewCustomerReplyWaiting(lead);
+  }
+
+  return !lead.suggested_reply_sent_at;
 }
 
 export default function LeadDemoDashboardPage() {
@@ -376,6 +409,10 @@ export default function LeadDemoDashboardPage() {
                 <tbody>
                   {leads.map((lead) => {
                     const risk = getFollowUpRisk(lead, now);
+                    const replyToSend = getReplyToSend(lead);
+                    const hasWaitingCustomerReply =
+                      hasNewCustomerReplyWaiting(lead);
+                    const sendEnabled = canSendReply(lead);
 
                     return (
                       <Fragment key={lead.id}>
@@ -407,6 +444,12 @@ export default function LeadDemoDashboardPage() {
                                 )}`}
                               >
                                 AI Priority: {lead.ai_priority}
+                              </span>
+                            )}
+
+                            {hasWaitingCustomerReply && (
+                              <span className="mt-2 inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">
+                                New customer reply
                               </span>
                             )}
                           </td>
@@ -488,13 +531,33 @@ export default function LeadDemoDashboardPage() {
                                 <div className="space-y-5 lg:col-span-2">
                                   <div className="rounded-xl border bg-white p-4">
                                     <div className="text-sm font-bold text-slate-950">
-                                      Customer Message
+                                      Original Customer Message
                                     </div>
 
                                     <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
                                       {lead.message}
                                     </div>
                                   </div>
+
+                                  {lead.latest_customer_reply && (
+                                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                                      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                        <div className="text-sm font-bold text-slate-950">
+                                          Latest Customer Reply
+                                        </div>
+
+                                        <div className="text-xs text-slate-500">
+                                          {formatDate(
+                                            lead.latest_customer_reply_at,
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                                        {lead.latest_customer_reply}
+                                      </div>
+                                    </div>
+                                  )}
 
                                   <div className="rounded-xl border bg-white p-4">
                                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -514,7 +577,7 @@ export default function LeadDemoDashboardPage() {
 
                                     {lead.ai_summary ||
                                     lead.ai_next_action ||
-                                    lead.ai_suggested_reply ? (
+                                    replyToSend ? (
                                       <div className="mt-4 space-y-4 text-sm text-slate-700">
                                         <div>
                                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -538,10 +601,13 @@ export default function LeadDemoDashboardPage() {
 
                                         <div>
                                           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                            Suggested Reply
+                                            {lead.latest_customer_reply
+                                              ? "AI Suggested Reply to Latest Customer Email"
+                                              : "Suggested Reply"}
                                           </div>
+
                                           <div className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3">
-                                            {lead.ai_suggested_reply ||
+                                            {replyToSend ||
                                               "No suggested reply available."}
                                           </div>
 
@@ -552,32 +618,30 @@ export default function LeadDemoDashboardPage() {
                                               }
                                               disabled={
                                                 sendingSuggestedReplyId ===
-                                                  lead.id ||
-                                                !lead.ai_suggested_reply ||
-                                                Boolean(
-                                                  lead.suggested_reply_sent_at,
-                                                )
+                                                  lead.id || !sendEnabled
                                               }
                                               className={`rounded-lg px-4 py-2 text-xs font-semibold text-white ${
-                                                lead.suggested_reply_sent_at
-                                                  ? "bg-green-600"
-                                                  : sendingSuggestedReplyId ===
-                                                      lead.id
+                                                sendEnabled
+                                                  ? sendingSuggestedReplyId ===
+                                                    lead.id
                                                     ? "bg-slate-400"
                                                     : "bg-blue-600 hover:bg-blue-700"
+                                                  : "bg-green-600"
                                               }`}
                                             >
-                                              {lead.suggested_reply_sent_at
-                                                ? "Sent ✓"
-                                                : sendingSuggestedReplyId ===
-                                                    lead.id
-                                                  ? "Sending..."
-                                                  : "Send Suggested Reply"}
+                                              {sendingSuggestedReplyId ===
+                                              lead.id
+                                                ? "Sending..."
+                                                : sendEnabled
+                                                  ? lead.latest_customer_reply
+                                                    ? "Send Reply to Customer"
+                                                    : "Send Suggested Reply"
+                                                  : "Sent ✓"}
                                             </button>
 
                                             {lead.suggested_reply_sent_at && (
                                               <span className="text-xs text-slate-500">
-                                                Sent:{" "}
+                                                Last sent:{" "}
                                                 {formatDate(
                                                   lead.suggested_reply_sent_at,
                                                 )}
@@ -594,7 +658,10 @@ export default function LeadDemoDashboardPage() {
 
                                         <div className="text-xs text-slate-500">
                                           AI processed:{" "}
-                                          {formatDate(lead.ai_processed_at)}
+                                          {formatDate(
+                                            lead.latest_ai_reply_generated_at ||
+                                              lead.ai_processed_at,
+                                          )}
                                         </div>
                                       </div>
                                     ) : (
@@ -627,6 +694,12 @@ export default function LeadDemoDashboardPage() {
                                     <div>
                                       Suggested Reply Sent:{" "}
                                       {formatDate(lead.suggested_reply_sent_at)}
+                                    </div>
+                                    <div>
+                                      Customer Replied:{" "}
+                                      {formatDate(
+                                        lead.latest_customer_reply_at,
+                                      )}
                                     </div>
                                     <div>
                                       Contacted: {formatDate(lead.contacted_at)}

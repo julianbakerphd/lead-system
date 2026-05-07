@@ -239,6 +239,96 @@ function getObjectKeysDeep(value: any, prefix = ""): string[] {
   });
 }
 
+function referencesContainMessageId(
+  referencesForReply: string,
+  messageId: string | null | undefined,
+) {
+  if (!referencesForReply || !messageId) return false;
+
+  const refs = referencesForReply.toLowerCase();
+  const id = messageId.trim().toLowerCase();
+  const idWithoutBrackets = id.replace(/^</, "").replace(/>$/, "");
+
+  return refs.includes(id) || refs.includes(idWithoutBrackets);
+}
+
+async function handleLeadDemoReply(params: {
+  email: string;
+  subject: string;
+  message: string;
+  incomingMessageId: string;
+  referencesForReply: string;
+}) {
+  const { data: portfolioLeads, error } = await supabase
+    .from("portfolio_leads")
+    .select("*")
+    .ilike("email", params.email)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error("Portfolio lead lookup failed:", error);
+    return false;
+  }
+
+  const portfolioLead = (portfolioLeads || []).find((lead) =>
+    referencesContainMessageId(
+      params.referencesForReply,
+      lead.customer_confirmation_message_id,
+    ),
+  );
+
+  if (!portfolioLead) {
+    return false;
+  }
+
+  console.log("Inbound email matched portfolio lead:", portfolioLead.id);
+
+  const conversation = [
+    {
+      role: "user",
+      content: portfolioLead.message || "",
+    },
+  ];
+
+  if (portfolioLead.ai_suggested_reply) {
+    conversation.push({
+      role: "assistant",
+      content: portfolioLead.ai_suggested_reply,
+    });
+  }
+
+  conversation.push({
+    role: "user",
+    content: params.message,
+  });
+
+  const suggestedReply = await generateResponse(conversation);
+
+  const now = new Date().toISOString();
+
+  const { error: updateError } = await supabase
+    .from("portfolio_leads")
+    .update({
+      latest_customer_reply: params.message,
+      latest_customer_reply_at: now,
+      latest_customer_reply_subject: params.subject,
+      latest_customer_reply_message_id: params.incomingMessageId || null,
+      latest_customer_reply_references: params.referencesForReply || null,
+      latest_ai_reply_to_customer: suggestedReply,
+      latest_ai_reply_generated_at: now,
+      updated_at: now,
+    })
+    .eq("id", portfolioLead.id);
+
+  if (updateError) {
+    console.error("Failed to update portfolio lead reply:", updateError);
+    throw new Error(updateError.message);
+  }
+
+  return true;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -395,6 +485,22 @@ export async function POST(req: Request) {
       .filter(Boolean)
       .join(" ")
       .trim();
+
+    const handledLeadDemoReply = await handleLeadDemoReply({
+      email,
+      subject,
+      message,
+      incomingMessageId,
+      referencesForReply,
+    });
+
+    if (handledLeadDemoReply) {
+      return Response.json({
+        success: true,
+        lead_demo_reply: true,
+        auto_sent: false,
+      });
+    }
 
     const { data: lead } = await supabase
       .from("leads")

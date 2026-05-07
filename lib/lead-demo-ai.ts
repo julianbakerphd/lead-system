@@ -64,12 +64,19 @@ Return JSON ONLY with these fields:
 - ai_summary: short plain-English summary of what the customer needs
 - ai_priority: low, medium, or high
 - ai_next_action: the next best action for the business owner
-- ai_suggested_reply: a short friendly reply the business could send
+- ai_suggested_reply: a short friendly follow-up reply the business could send
 
 Rules:
 - Do not invent facts.
 - Keep the summary short.
 - Keep the suggested reply professional and simple.
+- The suggested reply is sent from the dashboard after the automatic confirmation email has already been sent.
+- Do not say "we received your request."
+- Do not say "thanks for reaching out."
+- Do not say "someone will follow up shortly."
+- Do not say "this is an automated confirmation."
+- The suggested reply should sound like a real follow-up from the business.
+- Give a concrete next step, such as confirming the phone number, asking for availability, or saying the business will call soon.
 - If the customer sounds urgent or has an emergency, use high priority.
 - If the customer asks for help soon but not immediately, use medium priority.
 - If it is general or non-urgent, use low priority.

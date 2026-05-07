@@ -54,7 +54,10 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!lead.ai_suggested_reply) {
+    const replyToSend =
+      lead.latest_ai_reply_to_customer || lead.ai_suggested_reply;
+
+    if (!replyToSend) {
       return Response.json(
         {
           success: false,
@@ -64,23 +67,39 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!lead.customer_confirmation_message_id) {
+    const replyMessageId =
+      lead.latest_customer_reply_message_id ||
+      lead.customer_confirmation_message_id;
+
+    if (!replyMessageId) {
       return Response.json(
         {
           success: false,
           error:
-            "This lead does not have a confirmation email thread anchor. Submit a new lead after the latest update, then try again.",
+            "This lead does not have an email thread anchor. Submit a new lead after the latest update, then try again.",
         },
         { status: 400 },
       );
     }
 
-    const subject = makeReplySubject(lead.customer_confirmation_subject);
+    const subject = makeReplySubject(
+      lead.latest_customer_reply_subject || lead.customer_confirmation_subject,
+    );
+
+    const references = [
+      lead.customer_confirmation_message_id,
+      lead.latest_customer_reply_references,
+      lead.latest_customer_reply_message_id,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
     const now = new Date().toISOString();
 
-    const sent = await sendEmail(lead.email, subject, lead.ai_suggested_reply, {
-      inReplyTo: lead.customer_confirmation_message_id,
-      references: lead.customer_confirmation_message_id,
+    const sent = await sendEmail(lead.email, subject, replyToSend, {
+      inReplyTo: replyMessageId,
+      references: references || replyMessageId,
     });
 
     const sentData: any = (sent as any)?.data || sent;
