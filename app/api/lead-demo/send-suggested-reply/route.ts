@@ -10,9 +10,7 @@ function cleanText(value: unknown) {
 }
 
 function makeReplySubject(subject: string | null | undefined) {
-  if (!subject) return "Re: We received your request";
-
-  return subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
+  return subject || "We received your request";
 }
 
 export async function POST(req: Request) {
