@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 type LeadStatus = "new" | "contacted" | "quoted" | "won" | "lost";
 
@@ -25,6 +25,11 @@ type PortfolioLead = {
   business_alert_sent_at: string | null;
   customer_confirmation_sent_at: string | null;
   last_error: string | null;
+  ai_summary: string | null;
+  ai_priority: "low" | "medium" | "high" | null;
+  ai_next_action: string | null;
+  ai_suggested_reply: string | null;
+  ai_processed_at: string | null;
 };
 
 function formatDate(value: string | null | undefined) {
@@ -88,6 +93,13 @@ function statusClass(status: LeadStatus) {
 function urgencyClass(urgency: PortfolioLead["urgency"]) {
   if (urgency === "emergency") return "bg-red-100 text-red-700";
   if (urgency === "urgent") return "bg-orange-100 text-orange-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function aiPriorityClass(priority: PortfolioLead["ai_priority"]) {
+  if (priority === "high") return "bg-red-100 text-red-700";
+  if (priority === "medium") return "bg-orange-100 text-orange-700";
+  if (priority === "low") return "bg-green-100 text-green-700";
   return "bg-slate-100 text-slate-700";
 }
 
@@ -216,8 +228,9 @@ export default function LeadDemoDashboardPage() {
             </h1>
 
             <p className="mt-3 max-w-3xl text-slate-600">
-              Track every inquiry, monitor follow-up status, and flag leads that
-              are at risk of being missed.
+              Track every inquiry, monitor follow-up status, flag leads that are
+              at risk of being missed, and use AI assistance to summarize the
+              next action.
             </p>
           </div>
 
@@ -326,8 +339,8 @@ export default function LeadDemoDashboardPage() {
                     const risk = getFollowUpRisk(lead, now);
 
                     return (
-                      <>
-                        <tr key={lead.id} className="border-t align-top">
+                      <Fragment key={lead.id}>
+                        <tr className="border-t align-top">
                           <td className="px-5 py-4">
                             <div className="font-semibold text-slate-950">
                               {lead.name}
@@ -347,6 +360,16 @@ export default function LeadDemoDashboardPage() {
                             <div className="mt-1 text-xs text-slate-500">
                               Source: {lead.source}
                             </div>
+
+                            {lead.ai_priority && (
+                              <span
+                                className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${aiPriorityClass(
+                                  lead.ai_priority,
+                                )}`}
+                              >
+                                AI Priority: {lead.ai_priority}
+                              </span>
+                            )}
                           </td>
 
                           <td className="px-5 py-4">
@@ -423,13 +446,77 @@ export default function LeadDemoDashboardPage() {
                           <tr className="border-t bg-slate-50">
                             <td colSpan={7} className="px-5 py-5">
                               <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-                                <div className="rounded-xl border bg-white p-4 lg:col-span-2">
-                                  <div className="text-sm font-bold text-slate-950">
-                                    Customer Message
+                                <div className="space-y-5 lg:col-span-2">
+                                  <div className="rounded-xl border bg-white p-4">
+                                    <div className="text-sm font-bold text-slate-950">
+                                      Customer Message
+                                    </div>
+
+                                    <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                                      {lead.message}
+                                    </div>
                                   </div>
 
-                                  <div className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                                    {lead.message}
+                                  <div className="rounded-xl border bg-white p-4">
+                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                      <div className="text-sm font-bold text-slate-950">
+                                        AI Assistance
+                                      </div>
+
+                                      <span
+                                        className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-semibold ${aiPriorityClass(
+                                          lead.ai_priority,
+                                        )}`}
+                                      >
+                                        Priority:{" "}
+                                        {lead.ai_priority || "Not available"}
+                                      </span>
+                                    </div>
+
+                                    {lead.ai_summary ||
+                                    lead.ai_next_action ||
+                                    lead.ai_suggested_reply ? (
+                                      <div className="mt-4 space-y-4 text-sm text-slate-700">
+                                        <div>
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                            Summary
+                                          </div>
+                                          <div className="mt-1">
+                                            {lead.ai_summary ||
+                                              "No summary available."}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                            Suggested Next Action
+                                          </div>
+                                          <div className="mt-1">
+                                            {lead.ai_next_action ||
+                                              "No next action available."}
+                                          </div>
+                                        </div>
+
+                                        <div>
+                                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                            Suggested Reply
+                                          </div>
+                                          <div className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3">
+                                            {lead.ai_suggested_reply ||
+                                              "No suggested reply available."}
+                                          </div>
+                                        </div>
+
+                                        <div className="text-xs text-slate-500">
+                                          AI processed:{" "}
+                                          {formatDate(lead.ai_processed_at)}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-3 text-sm text-slate-500">
+                                        No AI analysis available for this lead.
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
 
@@ -473,7 +560,7 @@ export default function LeadDemoDashboardPage() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>

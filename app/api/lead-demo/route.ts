@@ -1,5 +1,6 @@
 import supabase from "@/lib/supabase";
 import { sendEmail } from "@/lib/email";
+import { analyzeLeadDemo } from "@/lib/lead-demo-ai";
 
 type LeadDemoBody = {
   name?: string;
@@ -44,7 +45,24 @@ function buildBusinessAlert(params: {
   message: string;
   source: string;
   followUpDeadline: string;
+  aiSummary?: string | null;
+  aiPriority?: string | null;
+  aiNextAction?: string | null;
+  aiSuggestedReply?: string | null;
 }) {
+  const aiBlock =
+    params.aiSummary || params.aiPriority || params.aiNextAction
+      ? `
+
+AI Assistance:
+Summary: ${params.aiSummary || "Not available"}
+Priority: ${params.aiPriority || "Not available"}
+Next Action: ${params.aiNextAction || "Not available"}
+
+Suggested Reply:
+${params.aiSuggestedReply || "Not available"}`
+      : "";
+
   return `New lead received.
 
 Name: ${params.name}
@@ -55,7 +73,7 @@ Urgency: ${params.urgency}
 Source: ${params.source}
 
 Message:
-${params.message}
+${params.message}${aiBlock}
 
 Follow-up deadline:
 ${new Date(params.followUpDeadline).toLocaleString()}
@@ -118,6 +136,16 @@ export async function POST(req: Request) {
       );
     }
 
+    const aiResult = await analyzeLeadDemo({
+      name,
+      email,
+      phone,
+      serviceNeeded,
+      urgency,
+      message,
+      source,
+    });
+
     const followUpDeadline = new Date(
       Date.now() + 60 * 60 * 1000,
     ).toISOString();
@@ -135,6 +163,11 @@ export async function POST(req: Request) {
           source,
           status: "new",
           follow_up_deadline: followUpDeadline,
+          ai_summary: aiResult.ai_summary,
+          ai_priority: aiResult.ai_priority,
+          ai_next_action: aiResult.ai_next_action,
+          ai_suggested_reply: aiResult.ai_suggested_reply,
+          ai_processed_at: aiResult.ai_processed_at,
         },
       ])
       .select()
@@ -150,8 +183,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const businessAlertEmail =
-      process.env.LEAD_ALERT_EMAIL || "support@contact.jbakertech.com";
+    const businessAlertEmail = process.env.LEAD_ALERT_EMAIL;
 
     const emailUpdates: {
       business_alert_sent_at?: string;
@@ -159,25 +191,35 @@ export async function POST(req: Request) {
       last_error?: string | null;
     } = {};
 
-    try {
-      await sendEmail(
-        businessAlertEmail,
-        `New ${urgency} lead: ${name}`,
-        buildBusinessAlert({
-          name,
-          email,
-          phone,
-          serviceNeeded,
-          urgency,
-          message,
-          source,
-          followUpDeadline,
-        }),
-      );
+    if (businessAlertEmail) {
+      try {
+        await sendEmail(
+          businessAlertEmail,
+          `New ${urgency} lead: ${name}`,
+          buildBusinessAlert({
+            name,
+            email,
+            phone,
+            serviceNeeded,
+            urgency,
+            message,
+            source,
+            followUpDeadline,
+            aiSummary: aiResult.ai_summary,
+            aiPriority: aiResult.ai_priority,
+            aiNextAction: aiResult.ai_next_action,
+            aiSuggestedReply: aiResult.ai_suggested_reply,
+          }),
+        );
 
-      emailUpdates.business_alert_sent_at = new Date().toISOString();
-    } catch (err: any) {
-      emailUpdates.last_error = err?.message || "Business alert email failed.";
+        emailUpdates.business_alert_sent_at = new Date().toISOString();
+      } catch (err: any) {
+        emailUpdates.last_error =
+          err?.message || "Business alert email failed.";
+      }
+    } else {
+      emailUpdates.last_error =
+        "LEAD_ALERT_EMAIL is not set, so no business alert was sent.";
     }
 
     try {
